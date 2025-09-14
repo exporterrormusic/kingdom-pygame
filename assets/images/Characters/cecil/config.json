@@ -1,0 +1,24 @@
+{
+    "name": "Cecil",
+    "display_name": "Cecil",
+    "description": "The genius creator of Eden and the Inherit squad.",
+    "weapon_name": "Erudition",
+    "weapon_type": "SMG",
+    "stats": {
+        "speed": 100,
+        "hp": 50,
+        "burst_gen": 50
+    },
+    "sprite_info": {
+        "filename": "cecil-sprite.png",
+        "frame_width": null,
+        "frame_height": null,
+        "animation_speed": 0.15
+    },
+    "burst_ability": {
+        "name": "Override Command: Absolution",
+        "description": "Temporarily shuts down all enemy Raptures.",
+        "cooldown": 15.0,
+        "damage_multiplier": 2.5
+    }
+}

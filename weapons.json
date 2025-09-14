@@ -1,0 +1,239 @@
+{
+    "weapon_categories": {
+        "Assault Rifle": {
+            "description": "Balanced automatic rifle with moderate damage and good versatility",
+            "fire_mode": "automatic",
+            "ammo": {
+                "magazine_size": 30,
+                "reload_time": 2.0
+            },
+            "firing": {
+                "fire_rate": 0.2,
+                "damage": 25,
+                "range": 800,
+                "accuracy": 0.95,
+                "recoil": 0.03
+            },
+            "bullet_properties": {
+                "speed": 1275,
+                "size_multiplier": 2.0,
+                "color": [255, 200, 100],
+                "shape": "tracer",
+                "penetration": 1
+            },
+            "effects": {
+                "muzzle_flash": true,
+                "shell_ejection": true,
+                "screen_shake": 0.5,
+                "sound": "rifle_shot"
+            },
+            "special_mechanics": {
+                "burst_fire_option": false,
+                "bipod_deploy": false
+            }
+        },
+        "SMG": {
+            "description": "High rate of fire automatic weapon with lower damage per shot",
+            "fire_mode": "automatic",
+            "ammo": {
+                "magazine_size": 60,
+                "reload_time": 1.0
+            },
+            "firing": {
+                "fire_rate": 0.05,
+                "damage": 18,
+                "range": 450,
+                "accuracy": 0.88,
+                "recoil": 0.05
+            },
+            "bullet_properties": {
+                "speed": 900,
+                "size_multiplier": 0.8,
+                "color": [0, 255, 255],
+                "shape": "neon",
+                "penetration": 1
+            },
+            "effects": {
+                "muzzle_flash": true,
+                "shell_ejection": true,
+                "screen_shake": 0.3,
+                "sound": "smg_shot"
+            },
+            "special_mechanics": {
+                "burst_fire_option": false,
+                "bipod_deploy": false
+            }
+        },
+        "Sniper": {
+            "description": "High-damage precision weapon with penetrating laser-like shots",
+            "fire_mode": "semi-automatic",
+            "ammo": {
+                "magazine_size": 6,
+                "reload_time": 3.0
+            },
+            "firing": {
+                "fire_rate": 1.0,
+                "damage": 80,
+                "range": 1200,
+                "accuracy": 0.99,
+                "recoil": 0.01
+            },
+            "bullet_properties": {
+                "speed": 2500,
+                "size_multiplier": 2.5,
+                "color": [255, 255, 255],
+                "shape": "laser",
+                "penetration": 999
+            },
+            "effects": {
+                "muzzle_flash": true,
+                "shell_ejection": false,
+                "screen_shake": 0.8,
+                "sound": "sniper_shot"
+            },
+            "special_mechanics": {
+                "burst_fire_option": false,
+                "bipod_deploy": false
+            }
+        },
+        "Shotgun": {
+            "description": "Close-range powerhouse that fires multiple pellets in a spread pattern",
+            "fire_mode": "semi-automatic",
+            "ammo": {
+                "magazine_size": 8,
+                "reload_time": 2.5
+            },
+            "firing": {
+                "fire_rate": 0.8,
+                "damage": 35,
+                "range": 550,
+                "accuracy": 0.75,
+                "recoil": 0.08
+            },
+            "bullet_properties": {
+                "speed": 850,
+                "size_multiplier": 1.8,
+                "color": [255, 150, 50],
+                "shape": "pellet",
+                "penetration": 1
+            },
+            "effects": {
+                "muzzle_flash": true,
+                "shell_ejection": true,
+                "screen_shake": 0.7,
+                "sound": "shotgun_blast"
+            },
+            "special_mechanics": {
+                "pellet_count": 5,
+                "spread_angle": 15,
+                "burst_fire_option": false,
+                "bipod_deploy": false
+            }
+        },
+        "Rocket Launcher": {
+            "description": "Heavy explosive weapon with area damage and target-seeking detonation",
+            "fire_mode": "semi-automatic",
+            "ammo": {
+                "magazine_size": 4,
+                "reload_time": 2.5
+            },
+            "firing": {
+                "fire_rate": 2.0,
+                "damage": 120,
+                "range": 1000,
+                "accuracy": 0.90,
+                "recoil": 0.15
+            },
+            "bullet_properties": {
+                "speed": 400,
+                "size_multiplier": 1.8,
+                "color": [255, 100, 0],
+                "shape": "rocket",
+                "penetration": 1
+            },
+            "effects": {
+                "muzzle_flash": true,
+                "shell_ejection": false,
+                "screen_shake": 1.2,
+                "sound": "rocket_fire"
+            },
+            "special_mechanics": {
+                "explosion_radius": 150,
+                "target_detonation": true,
+                "burst_fire_option": false,
+                "bipod_deploy": false
+            }
+        },
+        "Minigun": {
+            "description": "Ultra-high rate of fire heavy weapon with spin-up mechanics and ramping damage",
+            "fire_mode": "automatic",
+            "ammo": {
+                "magazine_size": 200,
+                "reload_time": 4.0
+            },
+            "firing": {
+                "fire_rate": 0.03,
+                "damage": 12,
+                "range": 700,
+                "accuracy": 0.80,
+                "recoil": 0.10
+            },
+            "bullet_properties": {
+                "speed": 950,
+                "size_multiplier": 1.0,
+                "color": [255, 255, 100],
+                "shape": "tracer",
+                "penetration": 1
+            },
+            "effects": {
+                "muzzle_flash": true,
+                "shell_ejection": true,
+                "screen_shake": 0.4,
+                "sound": "minigun_fire"
+            },
+            "special_mechanics": {
+                "spin_up_time": 3.0,
+                "initial_fire_rate": 0.5,
+                "spun_up_damage_multiplier": 1.8,
+                "burst_fire_option": false,
+                "bipod_deploy": false
+            }
+        },
+        "Sword": {
+            "description": "Melee weapon with large area-of-effect slashes and infinite attacks",
+            "fire_mode": "melee",
+            "ammo": {
+                "magazine_size": 999,
+                "reload_time": 0.0
+            },
+            "firing": {
+                "fire_rate": 0.4,
+                "damage": 60,
+                "range": 300,
+                "accuracy": 1.0,
+                "recoil": 0.0
+            },
+            "bullet_properties": {
+                "speed": 1200,
+                "size_multiplier": 4.0,
+                "color": [200, 200, 255],
+                "shape": "slash",
+                "penetration": 5
+            },
+            "effects": {
+                "muzzle_flash": false,
+                "shell_ejection": false,
+                "screen_shake": 0.6,
+                "sound": "sword_slash"
+            },
+            "special_mechanics": {
+                "area_of_effect": true,
+                "slash_width": 200,
+                "slash_arc": 90,
+                "infinite_ammo": true,
+                "burst_fire_option": false,
+                "bipod_deploy": false
+            }
+        }
+    }
+}

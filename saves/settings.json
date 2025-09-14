@@ -1,0 +1,15 @@
+{
+  "music_volume": 0.7,
+  "sfx_volume": 0.8,
+  "resolution": "1920x1080",
+  "fullscreen": false,
+  "key_bindings": {
+    "move_up": 119,
+    "move_down": 115,
+    "move_left": 97,
+    "move_right": 100,
+    "dash": 1073742049,
+    "burst": 101,
+    "pause": 112
+  }
+}

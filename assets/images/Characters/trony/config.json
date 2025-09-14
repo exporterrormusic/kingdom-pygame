@@ -1,0 +1,24 @@
+{
+    "name": "Trony",
+    "display_name": "Trony",
+    "description": "Totally voluntary citizen of the Kingdom.",
+    "weapon_name": "Transistor",
+    "weapon_type": "Sniper",
+    "stats": {
+        "speed": 70,
+        "hp": 75,
+        "burst_gen": 35
+    },
+    "sprite_info": {
+        "filename": "trony-sprite.png",
+        "frame_width": null,
+        "frame_height": null,
+        "animation_speed": 0.14
+    },
+    "burst_ability": {
+        "name": "Mega T.Rony",
+        "description": "Overcharges the suit to fire devastating energy beams.",
+        "cooldown": 15.0,
+        "damage_multiplier": 3.2
+    }
+}

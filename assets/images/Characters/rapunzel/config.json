@@ -1,0 +1,24 @@
+{
+    "name": "Rapunzel",
+    "display_name": "Rapunzel",
+    "description": "The O.G. lewd Nikke.",
+    "weapon_name": "Holy Grace",
+    "weapon_type": "Rocket Launcher",
+    "stats": {
+        "speed": 60,
+        "hp": 85,
+        "burst_gen": 40
+    },
+    "sprite_info": {
+        "filename": "rapunzel-sprite.png",
+        "frame_width": null,
+        "frame_height": null,
+        "animation_speed": 0.2
+    },
+    "burst_ability": {
+        "name": "Garden of Shangri-La",
+        "description": "Bright light stuns all enemies and heals all allies.",
+        "cooldown": 16.0,
+        "damage_multiplier": 2.0
+    }
+}

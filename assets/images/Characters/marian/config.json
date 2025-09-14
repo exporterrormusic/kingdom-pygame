@@ -1,0 +1,24 @@
+{
+    "name": "Marian",
+    "display_name": "Marian",
+    "description": "An archer with long-range precision and forest magic.",
+    "weapon_name": "New Dawn",
+    "weapon_type": "Minigun",
+    "stats": {
+        "speed": 70,
+        "hp": 65,
+        "burst_gen": 25
+    },
+    "sprite_info": {
+        "filename": "marian-sprite.png",
+        "frame_width": null,
+        "frame_height": null,
+        "animation_speed": 0.16
+    },
+    "burst_ability": {
+        "name": "New World",
+        "description": "Temporarily gain infinite ammo that explodes on contact.",
+        "cooldown": 14.0,
+        "damage_multiplier": 2.3
+    }
+}
