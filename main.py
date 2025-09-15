@@ -15,12 +15,14 @@ from src.player import Player
 from src.animated_player import AnimatedPlayer
 from src.bullet import BulletManager
 from src.enemy import EnemyManager
-from src.collision import CollisionManager, EffectsManager
+from src.collision import CollisionManager, EffectsManager, AtmosphericEffects
 from src.game_states import StateManager, GameState
 from src.character_manager import CharacterManager, CharacterSelectionMenu
 from src.weapon_manager import weapon_manager
 from src.missile_system import MissileManager
 from src.slash_effect import SlashEffectManager
+from src.world_manager import WorldManager
+from src.minimap import MiniMap
 from src.missile_system import MissileManager
 from src.slash_effect import SlashEffectManager
 from src.slash_effect import SlashEffectManager
@@ -48,6 +50,12 @@ class Game:
         # Track when we just entered pause to avoid immediate resume
         self.just_paused = False
         
+        # Performance monitoring
+        self.fps_counter = 0
+        self.fps_timer = 0.0
+        self.current_fps = 60
+        self.show_debug_info = False  # Toggle with F3
+        
         # Initialize cursor variables
         self.crosshair_cursor = None
         self.default_cursor = pg.mouse.get_cursor()  # Store default cursor
@@ -69,20 +77,45 @@ class Game:
         self.character_selection = CharacterSelectionMenu(self.screen_width, self.screen_height)
         self.selected_character = None
         
+        # Initialize world manager for infinite world (needed before enemy manager)
+        self.world_manager = WorldManager()
+        
+        # Initialize mini-map (larger size)
+        self.minimap = MiniMap(size=250, margin=20)
+        
         # Game objects (will be created after character selection)
         self.player = None
         self.bullet_manager = BulletManager()
-        self.enemy_manager = EnemyManager()
+        self.enemy_manager = EnemyManager(self.world_manager, spawn_point=(0, 0))
+        
+        # Pre-populate enemies at world borders for tactical gameplay
+        self.enemy_manager.populate_enemies_on_start(
+            screen_width=self.screen_width, 
+            screen_height=self.screen_height, 
+            player_pos=pg.Vector2(0, 0), 
+            zoom_level=1.0
+        )
+        
         self.effects_manager = EffectsManager()
         self.collision_manager = CollisionManager()
         self.slash_effect_manager = SlashEffectManager()
         self.missile_manager = MissileManager()
+        
+        # Initialize atmospheric effects
+        self.atmospheric_effects = AtmosphericEffects(self.screen_width, self.screen_height)
         
         # Import and initialize minigun effects manager
         from src.minigun_effects import MinigunEffectsManager
         from src.shotgun_effects import ShotgunEffectsManager
         self.minigun_effects_manager = MinigunEffectsManager()
         self.shotgun_effects_manager = ShotgunEffectsManager()
+        
+        # Camera settings for infinite world
+        self.camera_x = 0.0  # World camera position
+        self.camera_y = 0.0
+        self.base_zoom = 1.0  # Current zoom level 
+        self.min_zoom = 0.8   # Limited zoom out to prevent going too wide
+        self.max_zoom = 2.0   # Can zoom in to 0.5x current view (closer)
         
         # Camera shake system
         self.camera_shake_intensity = 0.0
@@ -142,16 +175,16 @@ class Game:
     def create_player_from_selection(self):
         """Create player based on character selection."""
         if not self.selected_character:
-            # Fallback to geometric player
+            # Fallback to geometric player at world center
             print("No character selected, using geometric player")
-            self.player = Player(self.screen_width // 2, self.screen_height // 2)
+            self.player = Player(0, 0)  # Spawn at world center (base location)
             return
         
         # Get character sprite path
         char_path = self.character_manager.get_character_path(self.selected_character)
         
         if char_path and os.path.exists(char_path):
-            # Create animated player with sprites
+            # Create animated player with sprites at world center
             try:
                 # Determine frame size by loading the sprite sheet
                 temp_sprite = pg.image.load(char_path)
@@ -162,7 +195,7 @@ class Game:
                 char_config = self.character_manager.get_character_config(self.selected_character)
                 
                 self.player = AnimatedPlayer(
-                    self.screen_width // 2, self.screen_height // 2, 
+                    0, 0,  # Spawn at world center (base location)
                     char_path, frame_width, frame_height,
                     self.state_manager.enhanced_menu.audio_manager,
                     self.selected_character,
@@ -193,10 +226,24 @@ class Game:
             self.bullet_manager.set_fire_rate(self.player.weapon_fire_rate)
             print(f"Set weapon fire rate: {self.player.weapon_fire_rate}")
         
-        self.enemy_manager = EnemyManager()
+        self.enemy_manager = EnemyManager(self.world_manager, spawn_point=(0, 0))
+        
+        # Pre-populate enemies at world borders for tactical gameplay
+        self.enemy_manager.populate_enemies_on_start(
+            screen_width=self.screen_width, 
+            screen_height=self.screen_height, 
+            player_pos=pg.Vector2(0, 0), 
+            zoom_level=1.0
+        )
+        
         self.effects_manager = EffectsManager()
         self.collision_manager = CollisionManager()
         self.slash_effect_manager = SlashEffectManager()
+        
+        # Initialize atmospheric effects and set random atmosphere for new level
+        self.atmospheric_effects = AtmosphericEffects(self.screen_width, self.screen_height)
+        self.atmospheric_effects.set_random_atmosphere()
+        
         self.score = 0
         self.game_time = 0.0
         
@@ -228,6 +275,74 @@ class Game:
                 self.camera_offset = pg.Vector2(0, 0)
         else:
             self.camera_offset = pg.Vector2(0, 0)
+            
+    def update_camera(self):
+        """Update camera position to follow player with expanded boundary constraints for border visibility."""
+        if self.player:
+            # Camera follows player
+            self.camera_x = self.player.pos.x
+            self.camera_y = self.player.pos.y
+            
+            # Clamp camera to stay within world bounds considering screen size and zoom
+            half_screen_width = (self.screen_width / self.base_zoom) / 2
+            half_screen_height = (self.screen_height / self.base_zoom) / 2
+            
+            # Rectangular world bounds with 100-pixel visible border
+            world_min_x, world_min_y = -1920, -1080
+            world_max_x, world_max_y = 1920, 1080
+            border_size = 100
+            
+            # Expand viewable area to include border
+            viewable_min_x = world_min_x - border_size
+            viewable_min_y = world_min_y - border_size
+            viewable_max_x = world_max_x + border_size
+            viewable_max_y = world_max_y + border_size
+            
+            # Ensure camera doesn't show beyond viewable boundaries (world + border)
+            self.camera_x = max(viewable_min_x + half_screen_width, 
+                              min(viewable_max_x - half_screen_width, self.camera_x))
+            self.camera_y = max(viewable_min_y + half_screen_height, 
+                              min(viewable_max_y - half_screen_height, self.camera_y))
+            
+    def handle_zoom_input(self, keys):
+        """Handle camera zoom input."""
+        zoom_speed = 0.02  # Zoom change per frame
+        
+        if keys[pg.K_EQUALS] or keys[pg.K_PLUS]:  # Zoom in
+            self.base_zoom = min(self.max_zoom, self.base_zoom + zoom_speed)
+        elif keys[pg.K_MINUS]:  # Zoom out
+            self.base_zoom = max(self.min_zoom, self.base_zoom - zoom_speed)
+            
+    def get_world_camera_offset(self):
+        """Get camera offset for world rendering centered on player."""
+        # Calculate offset to center player on screen
+        center_x = self.screen_width // 2
+        center_y = self.screen_height // 2
+        
+        # Simple camera offset without zoom modification
+        offset_x = center_x - self.camera_x + self.camera_offset.x
+        offset_y = center_y - self.camera_y + self.camera_offset.y
+        
+        return (offset_x, offset_y)
+    
+    def calculate_offset(self):
+        """Calculate camera offset for rendering - wrapper for get_world_camera_offset."""
+        return self.get_world_camera_offset()
+    
+    def screen_to_world_pos(self, screen_pos):
+        """Convert screen coordinates to world coordinates."""
+        screen_x, screen_y = screen_pos
+        
+        # Convert screen position to world position
+        # The world is centered on the player, so we need to offset by camera position
+        center_x = self.screen_width // 2
+        center_y = self.screen_height // 2
+        
+        # World position = camera position + (screen position - screen center)
+        world_x = self.camera_x + (screen_x - center_x)
+        world_y = self.camera_y + (screen_y - center_y)
+        
+        return (world_x, world_y)
     
     def handle_events(self):
         """Handle game events."""
@@ -292,6 +407,17 @@ class Game:
                         # Let the pause menu handler deal with escape in pause state
                         pass
                 
+                # Debug toggles (only in game)
+                if self.state_manager.is_playing():
+                    if event.key == pg.K_m:  # 'M' key to toggle map debug
+                        self.world_manager.toggle_map_debug()
+                        if event.key in self.keys_just_pressed:
+                            self.keys_just_pressed.remove(event.key)
+                    elif event.key == pg.K_F3:  # 'F3' key to toggle performance debug
+                        self.show_debug_info = not self.show_debug_info
+                        if event.key in self.keys_just_pressed:
+                            self.keys_just_pressed.remove(event.key)
+                
                 # Handle character selection
                 if self.state_manager.is_character_select():
                     result = self.character_selection.handle_input(event)
@@ -355,6 +481,15 @@ class Game:
                     if hovered_option is not None:
                         self.state_manager.enhanced_menu.main_menu_selection = hovered_option
             
+            elif event.type == pg.MOUSEWHEEL:
+                # Mouse wheel zoom control (only during gameplay)
+                if self.state_manager.is_playing():
+                    zoom_speed = 0.05  # Zoom sensitivity
+                    if event.y > 0:  # Scroll up - zoom in
+                        self.base_zoom = min(self.max_zoom, self.base_zoom + zoom_speed)
+                    elif event.y < 0:  # Scroll down - zoom out
+                        self.base_zoom = max(self.min_zoom, self.base_zoom - zoom_speed)
+            
             # Handle enhanced menu system input for welcome, main menu, and settings
             if self.state_manager.get_state() == GameState.WELCOME:
                 if not self.state_manager.handle_welcome_input(event):
@@ -409,17 +544,24 @@ class Game:
             # Handle continuous game input
             keys = pg.key.get_pressed()
             mouse_pos = pg.mouse.get_pos()
+            world_mouse_pos = self.screen_to_world_pos(mouse_pos)  # Convert to world coordinates
             mouse_buttons = pg.mouse.get_pressed()
+            
+            # Handle camera zoom controls
+            self.handle_zoom_input(keys)
             
             # Player input (if player exists)
             if self.player:
                 if hasattr(self.player, 'handle_input'):
                     # AnimatedPlayer
-                    self.player.handle_input(keys, mouse_pos, self.game_time, 
+                    self.player.handle_input(keys, world_mouse_pos, self.game_time, 
                                            self.effects_manager, self.add_camera_shake, mouse_buttons, self.bullet_manager)
                 else:
                     # Regular Player - handle input manually
-                    self.player.handle_input(keys, mouse_pos, self.game_time, self.effects_manager, bullet_manager=self.bullet_manager)
+                    self.player.handle_input(keys, world_mouse_pos, self.game_time, self.effects_manager, bullet_manager=self.bullet_manager)
+                
+                # Auto-collect cores near player (no key press needed)
+                collected_cores = self.world_manager.core_manager.try_collect_cores(self.player.pos)
                 
                 # Shooting
                 if mouse_buttons[0]:  # Left mouse button
@@ -721,6 +863,14 @@ class Game:
     
     def update(self):
         """Update game logic."""
+        # Performance monitoring
+        self.fps_counter += 1
+        self.fps_timer += self.dt
+        if self.fps_timer >= 1.0:  # Update FPS every second
+            self.current_fps = int(self.fps_counter / self.fps_timer)
+            self.fps_counter = 0
+            self.fps_timer = 0.0
+        
         # Always update state manager for menu animations
         self.state_manager.update(self.dt)
         
@@ -728,15 +878,40 @@ class Game:
             # Update camera shake
             self.update_camera_shake(self.dt)
             
+            # Update camera position to follow player
+            self.update_camera()
+            
+            # Update world manager (NPCs, objectives, etc.)
+            keys_pressed = pg.key.get_pressed()
+            self.world_manager.update(self.dt, self.player.pos, keys_pressed)
+            
+            # Update core system (replaces resource system) - pass player position for auto pickup
+            self.world_manager.core_manager.update(self.dt, self.player.pos)
+            
             # Update player
-            self.player.update(self.dt, self.bullet_manager)
+            self.player.update(self.dt, self.bullet_manager, self.world_manager)
+            
+            # Add footprints for snow atmosphere with proper timing
+            if hasattr(self.player, 'velocity') and self.player.velocity.length() > 30:  # Lower threshold for walking
+                # Add footprints on a timer (every 0.3 seconds when moving)
+                if not hasattr(self, 'last_footprint_time'):
+                    self.last_footprint_time = 0
+                
+                if self.game_time - self.last_footprint_time > 0.3:  # Footprint every 0.3 seconds
+                    self.atmospheric_effects.add_footprint(self.player.pos.x, self.player.pos.y)
+                    self.last_footprint_time = self.game_time
             
             # Update managers
-            self.bullet_manager.update(self.dt, self.game_time)
+            self.bullet_manager.update(self.dt, self.game_time, self.world_manager)
             self.missile_manager.update(self.dt, self.enemy_manager.get_enemies())
-            self.enemy_manager.update(self.dt, self.player.pos, self.game_time, self.bullet_manager)
-            self.effects_manager.update(self.dt)
+            self.enemy_manager.update(self.dt, self.player.pos, self.game_time, self.bullet_manager,
+                                     self.base_zoom, self.screen_width, self.screen_height)
+            self.effects_manager.update(self.dt, self.player.pos)
             self.slash_effect_manager.update(self.dt)
+            
+            # Update atmospheric effects (now world-space, so they need camera offset for player proximity spawning)
+            camera_offset = (-self.camera_x, -self.camera_y)
+            self.atmospheric_effects.update(self.dt)
             
             # Update minigun effects if player is using minigun
             if self.player.weapon_type == "Minigun":
@@ -768,6 +943,17 @@ class Game:
             # Handle collisions
             kills = self.collision_manager.check_bullet_enemy_collisions(
                 self.bullet_manager, self.enemy_manager, self.player, self.effects_manager)
+            
+            # Check bullet-chest collisions
+            bullets_to_remove = []
+            for bullet in self.bullet_manager.bullets[:]:  # Copy to allow modification
+                if bullet.type.value == "player":  # Only player bullets can damage chests
+                    if self.world_manager.core_manager.check_bullet_chest_collision(bullet.get_rect(), bullet.damage):
+                        bullets_to_remove.append(bullet)
+            
+            # Remove bullets that hit chests
+            for bullet in bullets_to_remove:
+                self.bullet_manager.remove_bullet(bullet)
             
             # Handle missile collisions with enemies
             missile_kills = self.check_missile_enemy_collisions()
@@ -841,25 +1027,60 @@ class Game:
             self.character_selection.render(self.screen)
             
         elif self.state_manager.is_playing():
-            # Render game objects with camera shake offset
+            # Create a virtual surface for world rendering that can be scaled for zoom
+            if self.base_zoom != 1.0:
+                # Calculate the size of the virtual surface based on zoom
+                # Zoom out = larger virtual surface, zoom in = smaller virtual surface
+                virtual_width = int(self.screen_width / self.base_zoom)
+                virtual_height = int(self.screen_height / self.base_zoom)
+                virtual_surface = pg.Surface((virtual_width, virtual_height))
+                virtual_surface.fill(BACKGROUND_COLOR)
+                
+                # Render everything to the virtual surface with adjusted offsets
+                virtual_center_x = virtual_width // 2
+                virtual_center_y = virtual_height // 2
+                virtual_offset = (virtual_center_x - self.camera_x + self.camera_offset.x,
+                                virtual_center_y - self.camera_y + self.camera_offset.y)
+            else:
+                # No zoom, render directly to screen
+                virtual_surface = self.screen
+                virtual_offset = self.get_world_camera_offset()
+            
+            # Render level-based world background
+            if self.player:
+                self.world_manager.render_world_background(
+                    virtual_surface, self.camera_x, self.camera_y, 
+                    virtual_surface.get_width(), virtual_surface.get_height()
+                )
+            
+            # Render map tiles (above background, below everything else)
+            self.world_manager.render_map(virtual_surface, virtual_offset)
+            
+            # Render cores and chests (above terrain, below player) - replaces resource nodes
+            self.world_manager.core_manager.render(virtual_surface, virtual_offset)
+            
+            # Render NPCs (above terrain, below player)
+            self.world_manager.render_npcs(virtual_surface, virtual_offset)
+            
+            # Render game objects with world offset
             if self.player:
                 if hasattr(self.player, 'render') and len(self.player.render.__code__.co_varnames) > 3:
                     # AnimatedPlayer with offset support
-                    self.player.render(self.screen, self.game_time, offset)
+                    self.player.render(virtual_surface, self.game_time, virtual_offset)
                 else:
                     # Regular player
-                    self.player.render(self.screen, self.game_time)
+                    self.player.render(virtual_surface, self.game_time)
             
             # Render enemies first (bottom layer)
-            self.enemy_manager.render(self.screen, offset)
-            
-            # Render bullets and missiles above enemies
-            self.bullet_manager.render(self.screen, offset)
-            self.missile_manager.render(self.screen, offset)
+            self.enemy_manager.render(virtual_surface, virtual_offset)
             
             # Render effects on top
-            self.effects_manager.render(self.screen, offset)
-            self.slash_effect_manager.render(self.screen, offset)
+            self.effects_manager.render(virtual_surface, virtual_offset)
+            self.slash_effect_manager.render(virtual_surface, virtual_offset)
+            
+            # Render bullets and missiles LAST to make sure they're visible (temporary debug)
+            self.bullet_manager.render(virtual_surface, virtual_offset)
+            self.missile_manager.render(virtual_surface, virtual_offset)
             
             # Render minigun muzzle flames if active
             if self.player.weapon_type == "Minigun":
@@ -868,10 +1089,10 @@ class Game:
                                  if hasattr(bullet, 'weapon_type') and bullet.weapon_type == 'Minigun']
                 
                 # Render whip trail lines between bullets
-                self.minigun_effects_manager.render_whip_trail_lines(self.screen, minigun_bullets, offset)
+                self.minigun_effects_manager.render_whip_trail_lines(virtual_surface, minigun_bullets, virtual_offset)
                 
                 # Render trail sparks
-                self.minigun_effects_manager.render_muzzle_flames(self.screen, offset)
+                self.minigun_effects_manager.render_muzzle_flames(virtual_surface, virtual_offset)
             
             # Render shotgun fire trails if active
             if self.player.weapon_type == "Shotgun":
@@ -880,10 +1101,30 @@ class Game:
                                  if hasattr(bullet, 'weapon_type') and bullet.weapon_type == 'Shotgun']
                 
                 # Render fire trail lines between pellets
-                self.shotgun_effects_manager.render_fire_trail_lines(self.screen, shotgun_bullets, offset)
+                self.shotgun_effects_manager.render_fire_trail_lines(virtual_surface, shotgun_bullets, virtual_offset)
                 
                 # Shell casings disabled
-                self.minigun_effects_manager.render_shell_casings(self.screen, offset)
+                self.minigun_effects_manager.render_shell_casings(virtual_surface, virtual_offset)
+            
+            # Render atmospheric effects particles in world space (on virtual surface)
+            self.atmospheric_effects.render(virtual_surface, virtual_offset)
+            
+            # Render footprints in world space (they need to be on the virtual surface to scale properly)
+            self.atmospheric_effects.render_footprints(virtual_surface, virtual_offset)
+            
+            # If we used a virtual surface, scale it to the screen
+            if self.base_zoom != 1.0:
+                scaled_surface = pg.transform.scale(virtual_surface, (self.screen_width, self.screen_height))
+                self.screen.blit(scaled_surface, (0, 0))
+            else:
+                # No scaling needed, just blit the virtual surface
+                self.screen.blit(virtual_surface, (0, 0))
+            
+            # Render atmospheric screen overlays (storm tint, lightning) on top of everything
+            self.atmospheric_effects.render_screen_overlays(self.screen)
+            
+            # Render map debug overlay (after scaling)
+            self.world_manager.render_map_debug(self.screen, self.calculate_offset())
             
             # Render game UI
             self.render_game_ui()
@@ -925,12 +1166,123 @@ class Game:
         wave_text = self.font.render(f"Wave: {self.enemy_manager.get_wave()}", True, (255, 255, 255))
         self.screen.blit(wave_text, (30, 80))
         
+        # World information (if player exists)
+        if self.player:
+            # Distance from base
+            distance = self.world_manager.get_distance_from_center(self.player.pos.x, self.player.pos.y)
+            distance_text = self.small_font.render(f"Distance from Base: {int(distance)}m", True, (255, 255, 255))
+            self.screen.blit(distance_text, (30, 130))
+            
+            # Current wave information
+            wave_text = self.small_font.render(f"Wave: {self.enemy_manager.wave}", True, (255, 255, 255))
+            self.screen.blit(wave_text, (30, 160))
+            
+            # Use wave-based danger level
+            wave_danger_level = min(5, self.enemy_manager.wave)
+            danger_color = (255, min(255, wave_danger_level * 50), 0)
+            danger_text = self.small_font.render(f"Wave Danger: {wave_danger_level}", True, danger_color)
+            self.screen.blit(danger_text, (30, 190))
+            
+            # Enemy scaling info
+            wave_multiplier = 1.0 + (wave_danger_level - 1) * 0.25  # Match enemy scaling
+            enemy_count = self.enemy_manager.get_enemy_count()
+            
+            # Distance-based scaling info
+            distance_from_center = self.player.pos.distance_to(pg.Vector2(0, 0))
+            distance_normalized = min(distance_from_center / 3000.0, 1.0)  # Updated for smaller world
+            distance_enemy_multiplier = 1.0 + 4.0 * (distance_normalized ** 1.5)  # Match enemy spawn formula
+            
+            scaling_text = self.small_font.render(f"Enemies: {enemy_count} | Max: {int(15 * distance_enemy_multiplier)}", True, (150, 200, 255))
+            self.screen.blit(scaling_text, (30, 210))
+                
+        # Rapture Cores display (replaces resource inventory)
+        if self.world_manager and hasattr(self.world_manager, 'core_manager'):
+            from src.core_system import CORE_INFO
+            y_pos = 250  # Moved down to make room for enemy scaling info
+            
+            # Core count display
+            core_count = self.world_manager.core_manager.get_player_cores()
+            core_text = self.small_font.render(f"Rapture Cores: {core_count}", True, CORE_INFO.color)
+            self.screen.blit(core_text, (30, y_pos))
+            
+            # Draw a small core icon next to the text
+            core_icon_x = 30 + self.small_font.size(f"Rapture Cores: {core_count}")[0] + 10
+            core_icon_y = y_pos + 10
+            pg.draw.circle(self.screen, CORE_INFO.color, (core_icon_x, core_icon_y), 6)
+            pg.draw.circle(self.screen, CORE_INFO.glow_color, (core_icon_x, core_icon_y), 3)
+            
+            # Current objective display
+            objective_text = self.world_manager.get_objective_progress_text()
+            obj_color = (0, 255, 0) if self.world_manager.is_objective_complete() else (255, 255, 0)
+            obj_display = self.small_font.render(f"Objective: {objective_text}", True, obj_color)
+            self.screen.blit(obj_display, (30, y_pos + 25))
+            
+            # Collection hint
+            hint_text = self.small_font.render("Cores auto-collect when near player", True, (150, 150, 150))
+            self.screen.blit(hint_text, (30, y_pos + 50))
+        
+        # Camera zoom level
+        zoom_text = self.small_font.render(f"Zoom: {self.base_zoom:.2f}x (±/-)", True, (200, 200, 200))
+        self.screen.blit(zoom_text, (self.screen_width - 200, 30))
+        
+        # Controls hint
+        controls_text = self.small_font.render("Controls: WASD + Mouse, +/- Zoom", True, (150, 150, 150))
+        self.screen.blit(controls_text, (self.screen_width - 300, self.screen_height - 30))
+        
         # Character name (if available)
         if self.selected_character:
             char_name = self.character_manager.get_current_character_name()
             if char_name:
                 char_text = self.small_font.render(f"Playing as: {char_name}", True, (200, 200, 200))
                 self.screen.blit(char_text, (30, self.screen_height - 60))
+        
+        # Render mini-map in top-right corner
+        if self.player:
+            # Get NPCs from world manager 
+            npcs = self.world_manager.get_npcs()
+            
+            # Get objectives from world manager if available
+            objectives = []
+            if hasattr(self.world_manager, 'objectives'):
+                objectives = self.world_manager.objectives
+            elif hasattr(self.world_manager, 'core_manager') and hasattr(self.world_manager.core_manager, 'objectives'):
+                objectives = self.world_manager.core_manager.objectives
+            
+            # Render the mini-map
+            self.minimap.render(self.screen, 
+                              (self.player.pos.x, self.player.pos.y),
+                              enemies=self.enemy_manager.get_enemies(),
+                              npcs=npcs,
+                              objectives=objectives)
+        
+        # Performance debug info (F3 to toggle)
+        if self.show_debug_info:
+            debug_y = self.screen_height - 125
+            
+            # FPS counter
+            fps_color = (0, 255, 0) if self.current_fps >= 45 else (255, 255, 0) if self.current_fps >= 30 else (255, 0, 0)
+            fps_text = self.small_font.render(f"FPS: {self.current_fps}", True, fps_color)
+            self.screen.blit(fps_text, (self.screen_width - 200, debug_y))
+            
+            # Enemy count
+            enemy_count = len(self.enemy_manager.enemies) if self.enemy_manager else 0
+            enemy_text = self.small_font.render(f"Enemies: {enemy_count}", True, (255, 255, 255))
+            self.screen.blit(enemy_text, (self.screen_width - 200, debug_y + 25))
+            
+            # Bullet count
+            bullet_count = len(self.bullet_manager.bullets) + len(self.bullet_manager.enemy_bullets)
+            bullet_text = self.small_font.render(f"Bullets: {bullet_count}", True, (255, 255, 255))
+            self.screen.blit(bullet_text, (self.screen_width - 200, debug_y + 50))
+            
+            # Performance status
+            perf_status = "Good" if self.current_fps >= 45 else "Poor" if self.current_fps < 30 else "Fair"
+            perf_color = fps_color
+            perf_text = self.small_font.render(f"Performance: {perf_status}", True, perf_color)
+            self.screen.blit(perf_text, (self.screen_width - 200, debug_y + 75))
+            
+            # Instructions
+            debug_info_text = self.small_font.render("F3 to toggle debug", True, (150, 150, 150))
+            self.screen.blit(debug_info_text, (self.screen_width - 200, debug_y + 100))
     
     def run(self):
         """Main game loop."""

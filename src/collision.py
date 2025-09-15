@@ -42,7 +42,15 @@ class CollisionManager:
                 if bullet_rect.colliderect(enemy_rect):
                     # Check if actually colliding using distance (more accurate for circles)
                     distance = (bullet.pos - enemy.pos).length()
-                    if distance <= bullet.size + enemy.size:
+                    
+                    # Calculate effective bullet collision size based on shape
+                    effective_bullet_size = bullet.size
+                    if hasattr(bullet, 'shape') and bullet.shape == "laser":
+                        # Laser bullets (sniper) have much larger visual beam width
+                        # Match the visual beam_width = max(size * 4, 24)
+                        effective_bullet_size = max(bullet.size * 4, 24) / 2  # Divide by 2 since we're using radius
+                    
+                    if distance <= effective_bullet_size + enemy.size:
                         # Collision detected
                         enemy.take_damage(bullet.damage)
                         
@@ -258,6 +266,80 @@ class CollisionManager:
         
         return pg.Vector2(0, 0), pg.Vector2(0, 0)
 
+class ComicDashLine:
+    """Comic book/anime style dash line effect that follows the player with tapered styling."""
+    
+    def __init__(self, relative_start_x: float, relative_start_y: float, 
+                 relative_end_x: float, relative_end_y: float, 
+                 thickness: int = 4, color: Tuple[int, int, int, int] = (255, 255, 255, 100)):
+        """Initialize a simple dash line with relative positions from player."""
+        self.relative_start = pg.Vector2(relative_start_x, relative_start_y)
+        self.relative_end = pg.Vector2(relative_end_x, relative_end_y)
+        self.start_thickness = thickness
+        self.color = color[:3]  # RGB only
+        self.base_alpha = color[3] if len(color) > 3 else 100  # More transparent base
+        self.alpha = self.base_alpha
+        self.max_life = 0.5  # Shorter duration for better performance
+        self.life = self.max_life
+        
+        # Calculate line properties for tapered effect
+        self.length = (self.relative_end - self.relative_start).length()
+        if self.length > 0:
+            self.direction = (self.relative_end - self.relative_start).normalize()
+        else:
+            self.direction = pg.Vector2(1, 0)
+    
+    def update(self, dt: float, player_pos: pg.Vector2) -> bool:
+        """Update the dash line with player position. Returns True if should be removed."""
+        self.life -= dt
+        
+        # Update absolute positions based on current player position
+        self.start_pos = player_pos + self.relative_start
+        self.end_pos = player_pos + self.relative_end
+        
+        # Fade out over time with slower fade at the beginning
+        fade_progress = 1.0 - (self.life / self.max_life)
+        if fade_progress < 0.2:
+            # Stay at base alpha for the first 20% of lifetime
+            self.alpha = self.base_alpha
+        else:
+            # Then fade out smoothly
+            remaining_fade = (fade_progress - 0.2) / 0.8
+            self.alpha = max(0, int(self.base_alpha * (1.0 - remaining_fade)))
+        
+        return self.life <= 0
+    
+    def render(self, screen: pg.Surface, offset=(0, 0)):
+        """Render a simple, performance-optimized dash line with enhanced glow."""
+        if self.alpha <= 0 or not hasattr(self, 'start_pos'):
+            return
+            
+        # Calculate render positions
+        start_render = (int(self.start_pos.x + offset[0]), int(self.start_pos.y + offset[1]))
+        end_render = (int(self.end_pos.x + offset[0]), int(self.end_pos.y + offset[1]))
+        
+        if start_render == end_render:
+            return
+            
+        # Enhanced multi-layer glow for better visual impact
+        glow_alpha = max(0, int(self.alpha * 0.4))  # Stronger glow
+        if glow_alpha > 20:  # Draw glow if visible enough
+            # Outer glow layer - soft and wide
+            outer_glow_color = (*self.color, max(10, int(glow_alpha * 0.6)))
+            outer_glow_thickness = self.start_thickness + 6
+            pg.draw.line(screen, outer_glow_color, start_render, end_render, outer_glow_thickness)
+            
+            # Inner glow layer - brighter and narrower
+            inner_glow_color = (*self.color, glow_alpha)
+            inner_glow_thickness = self.start_thickness + 3
+            pg.draw.line(screen, inner_glow_color, start_render, end_render, inner_glow_thickness)
+        
+        # Draw main line with good visibility
+        main_alpha = max(0, int(self.alpha * 0.95))  # Very visible main line
+        color_with_alpha = (*self.color, main_alpha)
+        
+        # Draw main line
+        pg.draw.line(screen, color_with_alpha, start_render, end_render, self.start_thickness)
 class ParticleEffect:
     """Simple particle effect for collisions and explosions."""
     
@@ -377,6 +459,21 @@ class EnhancedExplosionEffect:
         elif explosion_type == "tactical_debris":
             self.lifetime = 0.6
             gravity_factor = 0.85
+        elif explosion_type == "neon_burst":
+            self.lifetime = 0.15  # Very short duration
+            gravity_factor = 1.0  # No gravity for cyberpunk effects
+        elif explosion_type == "digital_fragments":
+            self.lifetime = 0.12  # Even shorter duration
+            gravity_factor = 1.0  # No gravity
+        elif explosion_type == "holographic_glow":
+            self.lifetime = 0.1  # Shortest duration
+            gravity_factor = 1.0  # No gravity
+        elif explosion_type == "anime_energy_burst":
+            self.lifetime = 0.2  # Quick energy burst
+            gravity_factor = 1.0  # No gravity
+        elif explosion_type == "skid_mark":
+            self.lifetime = 1.0  # Longer lasting skid marks
+            gravity_factor = 0.8  # Slight settling effect
         else:
             self.lifetime = 0.8  # Reduced from 1.0
             gravity_factor = 0.95
@@ -459,6 +556,31 @@ class EnhancedExplosionEffect:
                 velocity_magnitude = speed * speed_variation * 1.0
                 size = random.randint(size_range[0], size_range[1])
                 life_duration = random.uniform(0.3, 0.6)
+            elif explosion_type == "neon_burst":
+                # Cyberpunk neon burst - bright, fast, small particles
+                velocity_magnitude = speed * speed_variation * 1.5
+                size = random.randint(1, 3)  # Smaller particles
+                life_duration = random.uniform(0.08, 0.15)
+            elif explosion_type == "digital_fragments":
+                # Digital fragments - medium speed, tiny particles
+                velocity_magnitude = speed * speed_variation * 1.2
+                size = random.randint(1, 2)  # Very small particles
+                life_duration = random.uniform(0.06, 0.12)
+            elif explosion_type == "holographic_glow":
+                # Holographic afterglow - slow, small, fading particles
+                velocity_magnitude = speed * speed_variation * 0.8
+                size = random.randint(2, 4)  # Small glowing particles
+                life_duration = random.uniform(0.05, 0.1)
+            elif explosion_type == "anime_energy_burst":
+                # Anime energy burst - bright, fast expanding particles
+                velocity_magnitude = speed * speed_variation * 1.3
+                size = random.randint(2, 4)  # Medium bright particles
+                life_duration = random.uniform(0.1, 0.2)
+            elif explosion_type == "skid_mark":
+                # Skid mark particles - slow, settling dust/debris
+                velocity_magnitude = speed * speed_variation * 0.5
+                size = random.randint(2, 5)  # Larger dust particles
+                life_duration = random.uniform(0.8, 1.0)
             else:
                 # Fire and core particles
                 velocity_magnitude = speed * speed_variation
@@ -583,12 +705,19 @@ class EnhancedExplosionEffect:
             if particle['size'] > 0:
                 pg.draw.circle(screen, final_color, (render_x, render_y), int(particle['size']))
 
+
 class EffectsManager:
     """Manages particle effects and visual feedback."""
     
     def __init__(self):
         """Initialize the effects manager."""
         self.effects = []
+        self.dash_lines = []  # Comic book style dash lines
+        
+        # Anime environmental effects
+        self.environmental_effects = []
+        self.cherry_blossoms = []
+        self.spirit_wisps = []
     
     def add_explosion(self, x: float, y: float, color: Tuple[int, int, int] = (255, 100, 0)):
         """Add an enhanced fiery explosion effect."""
@@ -830,7 +959,7 @@ class EffectsManager:
         neon_burst = EnhancedExplosionEffect(
             x, y,
             color=(0, 255, 255),  # Bright cyan
-            particle_count=15,
+            particle_count=8,  # Reduced from 15
             speed=250,
             size_range=(2, 5),
             explosion_type="neon_burst",
@@ -843,7 +972,7 @@ class EffectsManager:
         digital_fragments = EnhancedExplosionEffect(
             x, y,
             color=(100, 255, 255),  # Lighter cyan
-            particle_count=10,
+            particle_count=6,  # Reduced from 10
             speed=180,
             size_range=(1, 3),
             explosion_type="digital_fragments",
@@ -856,7 +985,7 @@ class EffectsManager:
         afterglow = EnhancedExplosionEffect(
             x, y,
             color=(0, 200, 255),  # Deep cyber blue
-            particle_count=8,
+            particle_count=4,  # Reduced from 8
             speed=120,
             size_range=(3, 6),
             explosion_type="holographic_glow",
@@ -1029,7 +1158,7 @@ class EffectsManager:
         )
         self.effects.append(essence_burst)
     
-    def update(self, dt: float):
+    def update(self, dt: float, player_pos: pg.Vector2 = None):
         """Update all effects."""
         effects_to_remove = []
         
@@ -1039,26 +1168,476 @@ class EffectsManager:
         
         for effect in effects_to_remove:
             self.effects.remove(effect)
+        
+        # Update dash lines with player position
+        dash_lines_to_remove = []
+        
+        for dash_line in self.dash_lines:
+            if player_pos is not None:
+                if dash_line.update(dt, player_pos):
+                    dash_lines_to_remove.append(dash_line)
+            else:
+                if dash_line.update(dt, pg.Vector2(0, 0)):  # Fallback
+                    dash_lines_to_remove.append(dash_line)
+        
+        for dash_line in dash_lines_to_remove:
+            self.dash_lines.remove(dash_line)
     
     def render(self, screen: pg.Surface, offset=(0, 0)):
         """Render all effects."""
+        # Render regular effects
         for effect in self.effects:
             effect.render(screen, offset)
+        
+        # Render dash lines on top for visibility
+        for dash_line in self.dash_lines:
+            dash_line.render(screen, offset)
     
     def add_dash_effect(self, x: float, y: float, direction: pg.Vector2):
-        """Add a dash trail effect."""
-        # Create trail particles in the opposite direction of dash
-        opposite_dir = -direction
-        for i in range(8):
-            offset = opposite_dir * (i * 15)  # Trail behind the dash
-            effect = ParticleEffect(
-                x + offset.x, y + offset.y, 
-                color=(100, 150, 255), 
-                particle_count=3, 
-                speed=50
-            )
-            self.effects.append(effect)
+        """Add an anime-style dash trail effect with speed lines and skid marks."""
+        import math
+        import random
+        
+        # Comic Book Style Dash Lines - the classic "whoosh" effect
+        # Fix directional issues by ensuring we have a proper direction vector
+        if direction.length() == 0:
+            direction = pg.Vector2(1, 0)  # Default to right if no direction
+        direction = direction.normalize()
+        
+        angle = math.atan2(direction.y, direction.x)
+        dash_angle_degrees = math.degrees(angle)
+        
+        # Create multiple dash lines at different lengths and positions
+        # All positions are relative to player (0, 0)
+        
+        # Main central dash lines - simple and clean
+        # Create simple, character-height dash lines - positioned well behind the player
+        character_height = 40  # Approximate character sprite height
+        
+        # Main central lines - positioned much further back to avoid sprite overlap
+        for i in range(3):  # 3 main lines for better visibility
+            line_length = int((character_height - (i * 6)) * 1.3)  # 30% longer: 52px, 44px, 36px
+            start_distance = 55 + (i * 8)  # Much further back: 55, 63, 71 pixels behind player
+            
+            # Calculate RELATIVE positions (from player center)
+            relative_start_x = -math.cos(angle) * start_distance
+            relative_start_y = -math.sin(angle) * start_distance
+            
+            # Simple straight lines - no angle variation for better performance
+            relative_end_x = relative_start_x - math.cos(angle) * line_length
+            relative_end_y = relative_start_y - math.sin(angle) * line_length
+            
+            # More visible thickness and alpha
+            thickness = 5 - i  # 5px, 4px, 3px
+            alpha = 200 - (i * 30)  # 200, 170, 140 - much more visible
+            
+            dash_line = ComicDashLine(relative_start_x, relative_start_y, 
+                                    relative_end_x, relative_end_y, thickness, (255, 255, 255, alpha))
+            self.dash_lines.append(dash_line)
+        
+        # Add 2 side lines for width - also positioned much further back
+        perpendicular_angle = angle + math.pi/2
+        for side in [-1, 1]:  # One on each side
+            line_length = int(25 * 1.3)  # 30% longer: 32px side lines
+            start_distance = 50  # Much further back
+            
+            # Offset to the sides
+            side_offset = 12 * side
+            offset_x = math.cos(perpendicular_angle) * side_offset
+            offset_y = math.sin(perpendicular_angle) * side_offset
+            
+            relative_start_x = -math.cos(angle) * start_distance + offset_x
+            relative_start_y = -math.sin(angle) * start_distance + offset_y
+            
+            relative_end_x = relative_start_x - math.cos(angle) * line_length
+            relative_end_y = relative_start_y - math.sin(angle) * line_length
+            
+            # Smaller side lines
+            thickness = 3
+            alpha = 150
+            
+            dash_line = ComicDashLine(relative_start_x, relative_start_y, 
+                                    relative_end_x, relative_end_y, thickness, (255, 255, 255, alpha))
+            self.dash_lines.append(dash_line)
+        
+        # Small energy puff for dash start
+        energy_puff = EnhancedExplosionEffect(
+            x, y,
+            color=(200, 220, 255),  # Light blue energy
+            particle_count=4,  # Small burst
+            speed=120,
+            size_range=(1, 2),
+            explosion_type="anime_energy_burst",
+            direction_angle=dash_angle_degrees + 180,
+            spread_angle=20
+        )
+        self.effects.append(energy_puff)
     
     def clear(self):
         """Remove all effects."""
         self.effects.clear()
+        self.dash_lines.clear()
+        self.environmental_effects.clear()
+        self.cherry_blossoms.clear()
+        self.spirit_wisps.clear()
+
+
+class AtmosphericEffects:
+    """Manages random atmospheric effects for levels including rain, snow, and cherry blossoms."""
+    
+    def __init__(self, screen_width: int, screen_height: int):
+        """Initialize atmospheric effects system."""
+        self.screen_width = screen_width
+        self.screen_height = screen_height
+        
+        # Current atmosphere state
+        self.current_atmosphere = None  # "rain", "snow", "cherry_blossom", or None
+        
+        # Rain effect
+        self.rain_drops = []
+        self.rain_tint_alpha = 0
+        self.vignette_alpha = 0
+        
+        # Snow effect  
+        self.snow_flakes = []
+        self.footprints = []
+        
+        # Cherry blossom effect
+        self.cherry_petals = []
+        
+        # Timing
+        self.effect_timer = 0.0
+        
+    def set_random_atmosphere(self):
+        """Randomly select an atmospheric effect for the level with equal probability."""
+        import random
+        # Use random.randint for perfectly equal distribution
+        random_num = random.randint(1, 3)  # 1, 2, or 3 with equal probability
+        
+        if random_num == 1:
+            self.current_atmosphere = "rain"
+            self._init_rain()
+            print(f"Selected atmosphere: RAIN (intense storm) - {len(self.rain_drops)} drops created")
+        elif random_num == 2:
+            self.current_atmosphere = "snow"
+            self._init_snow()
+            print(f"Selected atmosphere: SNOW (winter wonderland)")
+        else:  # random_num == 3
+            self.current_atmosphere = "cherry_blossom"
+            self._init_cherry_blossoms()
+            print(f"Selected atmosphere: CHERRY BLOSSOM (peaceful spring)")
+    
+    def _init_rain(self):
+        """Initialize rain atmospheric effect in world space."""
+        import random
+        # Create MANY more rain drops for intense storm effect
+        map_margin = 500  # Extra area around map for seamless coverage
+        for _ in range(800):  # Much more rain for intense storm
+            # Varied rain colors for more realistic storm effect
+            color_variants = [
+                (160, 180, 255),  # Light blue
+                (180, 200, 255),  # Lighter blue
+                (200, 220, 255),  # Very light blue
+                (220, 230, 255),  # Almost white-blue
+                (255, 255, 255),  # Pure white
+                (140, 160, 240),  # Deeper blue
+                (190, 210, 250),  # Pale blue
+            ]
+            
+            self.rain_drops.append({
+                'x': random.uniform(-1920 - map_margin, 1920 + map_margin),
+                'y': random.uniform(-1080 - map_margin, 1080 + map_margin),
+                'speed': random.uniform(400, 700),  # Faster for intense storm
+                'length': random.randint(15, 25),   # Longer rain lines
+                'color': random.choice(color_variants),  # Varied colors
+                'wind_drift': random.uniform(-50, 50),  # More wind variation
+                'thickness': random.choice([1, 1, 1, 2])  # Mostly thin, some thicker drops
+            })
+        self.rain_tint_alpha = 80  # Stronger storm tint
+        self.lightning_timer = 0.0
+        self.lightning_flash = 0.0
+    
+    def _init_snow(self):
+        """Initialize snow atmospheric effect in world space."""
+        import random
+        # Create snowflakes to cover the map area with good coverage
+        map_margin = 500
+        for _ in range(400):  # Significantly increased for better snow coverage
+            self.snow_flakes.append({
+                'x': random.uniform(-1920 - map_margin, 1920 + map_margin),
+                'y': random.uniform(-1080 - map_margin, 1080 + map_margin),
+                'speed': random.uniform(50, 120),
+                'drift': random.uniform(-20, 20),
+                'size': random.randint(2, 6),
+                'opacity': random.randint(200, 255)  # 80% opacity
+            })
+        self.snow_tint_alpha = 30
+    
+    def _init_cherry_blossoms(self):
+        """Initialize cherry blossom atmospheric effect in world space."""
+        import random
+        # Create cherry blossom petals to cover the map area
+        map_margin = 500
+        for _ in range(200):  # Increased for better coverage
+            self.cherry_petals.append({
+                'x': random.uniform(-1920 - map_margin, 1920 + map_margin),
+                'y': random.uniform(-1080 - map_margin, 1080 + map_margin),
+                'speed': random.uniform(30, 80),
+                'drift': random.uniform(-50, 50),
+                'rotation': random.uniform(0, 360),
+                'rotation_speed': random.uniform(-90, 90),
+                'size': random.randint(8, 15),  # Increased size for better visibility
+                'color': random.choice([(255, 182, 193, 204), (255, 192, 203, 204), (255, 160, 180, 204)])  # 80% opacity
+            })
+    
+    def add_footprint(self, x: float, y: float):
+        """Add a footprint when walking in snow."""
+        if self.current_atmosphere == "snow":
+            import time
+            import random
+            
+            # Add slight offset for more natural footprint pattern
+            offset_x = random.uniform(-5, 5)
+            offset_y = random.uniform(-5, 5)
+            
+            self.footprints.append({
+                'x': x + offset_x,
+                'y': y + offset_y,
+                'timestamp': time.time(),
+                'fade_time': 3.0,  # Footprints last 3 seconds
+                'size': random.randint(6, 10)  # Varying footprint sizes
+            })
+            
+            # Limit footprints to prevent memory issues
+            if len(self.footprints) > 200:
+                self.footprints = self.footprints[-100:]
+    
+    def update(self, dt: float):
+        """Update atmospheric effects (screen-space only, no camera offset)."""
+        if not self.current_atmosphere:
+            return
+            
+        self.effect_timer += dt
+        
+        if self.current_atmosphere == "rain":
+            self._update_rain(dt)
+        elif self.current_atmosphere == "snow":
+            self._update_snow(dt)
+        elif self.current_atmosphere == "cherry_blossom":
+            self._update_cherry_blossoms(dt)
+    
+    def _update_rain(self, dt: float):
+        """Update rain effects in world space."""
+        import random
+        
+        # Update lightning timer and flash
+        self.lightning_timer += dt
+        if self.lightning_timer > random.uniform(8, 15):
+            self.lightning_flash = 1.0
+            self.lightning_timer = 0.0
+        
+        # Fade lightning flash
+        if self.lightning_flash > 0:
+            self.lightning_flash = max(0, self.lightning_flash - dt * 4)
+        
+        # Update rain drops in world space - they continue falling regardless of camera
+        for drop in self.rain_drops:
+            # Move rain in world coordinates (independent of camera)
+            drop['y'] += drop['speed'] * dt
+            drop['x'] += drop['wind_drift'] * dt
+            
+            # Reset drop when it goes too far down (world wrap to map boundaries)
+            if drop['y'] > 1080 + 500:  # Bottom of map + margin
+                drop['y'] = random.uniform(-1080 - 500, -1080 - 200)  # Respawn at top of map area
+                drop['x'] = random.uniform(-1920 - 500, 1920 + 500)   # Random x position across map
+    
+    def _update_snow(self, dt: float):
+        """Update snow effects in world space."""
+        import random
+        import time
+        
+        # Update snowflakes in world space
+        for flake in self.snow_flakes:
+            flake['y'] += flake['speed'] * dt
+            flake['x'] += flake['drift'] * dt
+            
+            # Reset flake when it goes too far down (world wrap to map boundaries)
+            if flake['y'] > 1080 + 500:
+                flake['y'] = random.uniform(-1080 - 500, -1080 - 200)
+                flake['x'] = random.uniform(-1920 - 500, 1920 + 500)
+        
+        # Update footprints (fade over time)
+        current_time = time.time()
+        self.footprints = [fp for fp in self.footprints 
+                          if current_time - fp['timestamp'] < fp['fade_time']]
+    
+    def _update_cherry_blossoms(self, dt: float):
+        """Update cherry blossom effects in world space."""
+        import random
+        
+        # Update cherry petals in world space
+        for petal in self.cherry_petals:
+            petal['y'] += petal['speed'] * dt
+            petal['x'] += petal['drift'] * dt
+            petal['rotation'] += petal['rotation_speed'] * dt
+            
+            # Reset petal when it goes too far down (world wrap to map boundaries)
+            if petal['y'] > 1080 + 500:
+                petal['y'] = random.uniform(-1080 - 500, -1080 - 200)
+                petal['x'] = random.uniform(-1920 - 500, 1920 + 500)
+                petal['rotation'] = random.uniform(0, 360)
+    
+    def render(self, screen: pg.Surface, camera_offset: tuple = (0, 0)):
+        """Render atmospheric effects in world space (uses camera offset like all world objects)."""
+        if not self.current_atmosphere:
+            return
+            
+        if self.current_atmosphere == "rain":
+            self._render_rain(screen, camera_offset)
+        elif self.current_atmosphere == "snow":
+            self._render_snow(screen, camera_offset)
+        elif self.current_atmosphere == "cherry_blossom":
+            self._render_cherry_blossoms(screen, camera_offset)
+    
+    def _render_rain(self, screen: pg.Surface, camera_offset: tuple):
+        """Render rain effect in world space with camera offset - intense storm."""
+        # Debug: Count visible drops
+        visible_count = 0
+        
+        # Render rain drops in world space - diagonal rain from top-left to bottom-right
+        for drop in self.rain_drops:
+            # Convert world position to screen position (same as snow/cherry blossoms)
+            screen_x = drop['x'] + camera_offset[0]
+            screen_y = drop['y'] + camera_offset[1]
+            
+            # Only render if visible on screen (with margin for performance)
+            if (-100 <= screen_x <= screen.get_width() + 100 and 
+                -100 <= screen_y <= screen.get_height() + 100):
+                
+                visible_count += 1
+                
+                # Diagonal rain: moves from top-left to bottom-right
+                start_pos = (int(screen_x), int(screen_y))
+                end_pos = (int(screen_x + drop['length']), int(screen_y + drop['length'] * 1.5))  # Diagonal movement
+                
+                # Use the varied color assigned to this drop
+                color = drop['color']
+                
+                # Draw rain lines with varied thickness for more realistic storm
+                pg.draw.line(screen, color, start_pos, end_pos, drop['thickness'])
+        
+        # Debug output every few seconds
+        if hasattr(self, '_rain_debug_timer'):
+            self._rain_debug_timer += 0.016  # Approximate frame time
+            if self._rain_debug_timer > 3.0:  # Every 3 seconds
+                print(f"Rain debug: {visible_count}/{len(self.rain_drops)} drops visible")
+                self._rain_debug_timer = 0.0
+        else:
+            self._rain_debug_timer = 0.0
+    
+    def _render_snow(self, screen: pg.Surface, camera_offset: tuple):
+        """Render snow effect in world space with camera offset."""
+        # Render snowflakes in world space
+        for flake in self.snow_flakes:
+            # Convert world position to screen position
+            screen_x = flake['x'] + camera_offset[0]
+            screen_y = flake['y'] + camera_offset[1]
+            
+            # Only render if visible on screen
+            if (-20 <= screen_x <= screen.get_width() + 20 and 
+                -20 <= screen_y <= screen.get_height() + 20):
+                
+                pos = (int(screen_x), int(screen_y))
+                color = (255, 255, 255, 204)  # 80% opacity
+                snowflake_surface = pg.Surface((flake['size']*2, flake['size']*2), pg.SRCALPHA)
+                pg.draw.circle(snowflake_surface, color, (flake['size'], flake['size']), flake['size'])
+                screen.blit(snowflake_surface, (pos[0] - flake['size'], pos[1] - flake['size']))
+    
+    def _render_cherry_blossoms(self, screen: pg.Surface, camera_offset: tuple):
+        """Render cherry blossom effect in world space with camera offset."""
+        import math
+        
+        for petal in self.cherry_petals:
+            # Convert world position to screen position
+            screen_x = petal['x'] + camera_offset[0]
+            screen_y = petal['y'] + camera_offset[1]
+            
+            # Only render if visible on screen
+            if (-30 <= screen_x <= screen.get_width() + 30 and 
+                -30 <= screen_y <= screen.get_height() + 30):
+                
+                pos = (int(screen_x), int(screen_y))
+                color = petal['color']
+                size = petal['size']
+                
+                # Create sakura blossom shape (5 petals)
+                blossom_surface = pg.Surface((size*3, size*3), pg.SRCALPHA)
+                center_x, center_y = size*3//2, size*3//2
+                
+                # Draw 5 petals in a star pattern
+                for i in range(5):
+                    angle = (i * 72 + petal['rotation']) * math.pi / 180  # 72 degrees between petals
+                    petal_x = center_x + int(size * 0.8 * math.cos(angle))
+                    petal_y = center_y + int(size * 0.8 * math.sin(angle))
+                    
+                    # Draw individual petal as small oval/ellipse
+                    petal_size = max(2, size // 3)
+                    pg.draw.ellipse(blossom_surface, color, 
+                                   (petal_x - petal_size//2, petal_y - petal_size, 
+                                    petal_size, petal_size*2))
+                
+                # Draw center of blossom
+                pg.draw.circle(blossom_surface, (255, 255, 200, 180), 
+                              (center_x, center_y), max(1, size // 4))
+                
+                screen.blit(blossom_surface, (pos[0] - center_x, pos[1] - center_y))
+    
+    def render_screen_overlays(self, screen: pg.Surface):
+        """Render atmospheric screen overlays (storm tint, lightning, snow ground overlay)."""
+        if not self.current_atmosphere:
+            return
+            
+        if self.current_atmosphere == "rain":
+            # Apply blue storm tint with brightness lowering
+            storm_overlay = pg.Surface((screen.get_width(), screen.get_height()), pg.SRCALPHA)
+            storm_overlay.fill((20, 30, 60, self.rain_tint_alpha))
+            screen.blit(storm_overlay, (0, 0))
+            
+            # Apply lightning flash if active
+            if self.lightning_flash > 0:
+                flash_overlay = pg.Surface((screen.get_width(), screen.get_height()), pg.SRCALPHA)
+                flash_intensity = int(self.lightning_flash * 150)
+                flash_overlay.fill((255, 255, 255, flash_intensity))
+                screen.blit(flash_overlay, (0, 0))
+                
+        elif self.current_atmosphere == "snow":
+            # Add white/frosted ground overlay for snow
+            ground_overlay = pg.Surface((screen.get_width(), screen.get_height()), pg.SRCALPHA)
+            ground_overlay.fill((255, 255, 255, 40))  # 80% of 50 = 40
+            screen.blit(ground_overlay, (0, 0))
+    
+    def render_footprints(self, screen: pg.Surface, camera_offset: tuple):
+        """Render footprints in world space (uses camera offset since they're world objects)."""
+        if self.current_atmosphere != "snow":
+            return
+            
+        import time
+        current_time = time.time()
+        
+        for fp in self.footprints:
+            # Calculate alpha based on age (fade out over time)
+            age = current_time - fp['timestamp']
+            alpha = max(0, int(255 * (1 - age / fp['fade_time'])))
+            
+            if alpha > 0:
+                world_pos = (fp['x'], fp['y'])
+                screen_pos = (int(world_pos[0] - camera_offset[0]), 
+                            int(world_pos[1] - camera_offset[1]))
+                
+                # Only render if on screen
+                if (-50 <= screen_pos[0] <= screen.get_width() + 50 and 
+                    -50 <= screen_pos[1] <= screen.get_height() + 50):
+                    color = (100, 100, 120, alpha)  # Darker than snow
+                    footprint_surface = pg.Surface((fp['size']*2, fp['size']*2), pg.SRCALPHA)
+                    pg.draw.circle(footprint_surface, color, (fp['size'], fp['size']), fp['size'])
+                    screen.blit(footprint_surface, (screen_pos[0] - fp['size'], screen_pos[1] - fp['size']))

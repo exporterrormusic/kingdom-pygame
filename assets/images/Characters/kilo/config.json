@@ -5,7 +5,7 @@
     "weapon_name": "Anchoret",
     "weapon_type": "Shotgun",
     "stats": {
-        "speed": 90,
+        "speed": 150,
         "hp": 60,
         "burst_gen": 35
     },

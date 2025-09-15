@@ -5,7 +5,7 @@
     "weapon_name": "Plot Armor",
     "weapon_type": "Assault Rifle",
     "stats": {
-        "speed": 100,
+        "speed": 150,
         "hp": 70,
         "burst_gen": 25
     },

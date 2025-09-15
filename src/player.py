@@ -166,7 +166,7 @@ class Player:
         """Check if player is pressing any movement keys."""
         return any(self.move_keys.values())
     
-    def update(self, dt: float):
+    def update(self, dt: float, bullet_manager=None, world_manager=None):
         """Update player state."""
         # Update hit flash effect
         self.update_hit_flash(dt)
@@ -204,12 +204,39 @@ class Player:
             # Apply movement
             self.velocity = movement * self.speed
         
-        # Update position
-        self.pos += self.velocity * dt
+        # Update position with collision checking
+        if world_manager and world_manager.map_manager:
+            # Store old position
+            old_pos = self.pos.copy()
+            
+            # Try to move
+            new_pos = self.pos + self.velocity * dt
+            
+            # Check collision at new position (with player size buffer)
+            collision_radius = self.size + 2  # Small buffer around player
+            if not world_manager.is_position_blocked_by_map(new_pos.x, new_pos.y):
+                # No collision, update position normally
+                self.pos = new_pos
+            else:
+                # Collision detected, try partial movement
+                # Try X movement only
+                test_pos_x = pg.Vector2(old_pos.x + self.velocity.x * dt, old_pos.y)
+                if not world_manager.is_position_blocked_by_map(test_pos_x.x, test_pos_x.y):
+                    self.pos.x = test_pos_x.x
+                
+                # Try Y movement only
+                test_pos_y = pg.Vector2(old_pos.x, old_pos.y + self.velocity.y * dt)
+                if not world_manager.is_position_blocked_by_map(test_pos_y.x, test_pos_y.y):
+                    self.pos.y = test_pos_y.y
+        else:
+            # No world manager, update position normally
+            self.pos += self.velocity * dt
         
-        # Keep player on screen (using updated screen dimensions)
-        self.pos.x = max(self.size, min(1920 - self.size, self.pos.x))
-        self.pos.y = max(self.size, min(1080 - self.size, self.pos.y))
+        # Keep player within world boundaries (3840x2160 rectangular world: -1920 to +1920 width, -1080 to +1080 height)
+        world_min_x, world_max_x = -1920, 1920
+        world_min_y, world_max_y = -1080, 1080
+        self.pos.x = max(world_min_x + self.size, min(world_max_x - self.size, self.pos.x))
+        self.pos.y = max(world_min_y + self.size, min(world_max_y - self.size, self.pos.y))
     
     def get_gun_tip_position(self) -> pg.Vector2:
         """Get the position where bullets should spawn from."""

@@ -400,6 +400,19 @@ class AnimatedPlayer:
                 self.hit_flash_duration = 0.0
                 self.hit_flash_timer = 0.0
     
+    def _apply_hit_flash_tinting(self, surface: pg.Surface, intensity: float):
+        """Apply hit flash tinting to a surface while respecting alpha channel - OPTIMIZED."""
+        # Use pygame's built-in color blending for better performance
+        if intensity <= 0:
+            return
+        
+        # Create a temporary surface for blending
+        overlay = pg.Surface(surface.get_size(), pg.SRCALPHA)
+        overlay.fill((*self.flash_color, int(128 * intensity)))  # Semi-transparent red
+        
+        # Use pygame's optimized blend modes
+        surface.blit(overlay, (0, 0), special_flags=pg.BLEND_ALPHA_SDL2)
+    
     def update_burst_overlay(self, dt: float):
         """Update burst visual overlay and particles."""
         if self.burst_overlay_active:
@@ -417,7 +430,7 @@ class AnimatedPlayer:
                 self.burst_overlay_timer = 0.0
                 self.burst_effect_particles = []
     
-    def update(self, dt: float, bullet_manager=None):
+    def update(self, dt: float, bullet_manager=None, world_manager=None):
         """Update player state."""
         # Update hit flash effect
         self.update_hit_flash(dt)
@@ -468,8 +481,52 @@ class AnimatedPlayer:
             else:
                 self.velocity = pg.Vector2(0, 0)
         
-        # Update position
-        self.pos += self.velocity * dt
+        # Calculate potential new position
+        potential_pos = self.pos + self.velocity * dt
+        
+        # Check for map collisions and handle them
+        if world_manager:
+            # Try to move to the new position
+            # Check X movement first - check multiple points around the player's perimeter
+            temp_pos = pg.Vector2(potential_pos.x, self.pos.y)
+            can_move_x = True
+            
+            # Check collision at multiple points around the player's circle
+            for angle in [0, 90, 180, 270]:  # Check cardinal directions
+                check_angle = math.radians(angle)
+                check_x = temp_pos.x + math.cos(check_angle) * self.size
+                check_y = temp_pos.y + math.sin(check_angle) * self.size
+                if world_manager.is_position_blocked_by_map(check_x, check_y):
+                    can_move_x = False
+                    break
+            
+            if can_move_x:
+                self.pos.x = temp_pos.x
+            
+            # Then check Y movement
+            temp_pos = pg.Vector2(self.pos.x, potential_pos.y)
+            can_move_y = True
+            
+            # Check collision at multiple points around the player's circle
+            for angle in [0, 90, 180, 270]:  # Check cardinal directions
+                check_angle = math.radians(angle)
+                check_x = temp_pos.x + math.cos(check_angle) * self.size
+                check_y = temp_pos.y + math.sin(check_angle) * self.size
+                if world_manager.is_position_blocked_by_map(check_x, check_y):
+                    can_move_y = False
+                    break
+            
+            if can_move_y:
+                self.pos.y = temp_pos.y
+        else:
+            # No collision checking, just update position
+            self.pos = potential_pos
+        
+        # Keep player within world boundaries (3840x2160 rectangular world: -1920 to +1920 width, -1080 to +1080 height)
+        world_min_x, world_max_x = -1920, 1920
+        world_min_y, world_max_y = -1080, 1080
+        self.pos.x = max(world_min_x + self.size, min(world_max_x - self.size, self.pos.x))
+        self.pos.y = max(world_min_y + self.size, min(world_max_y - self.size, self.pos.y))
         
         # Update sprite animation if using sprites
         if self.use_sprites and self.animated_sprite:
@@ -499,21 +556,40 @@ class AnimatedPlayer:
             # Render sprite animation
             self.animated_sprite.render(screen, offset)
             
-            # Apply hit flash effect by tinting the sprite
+            # Apply hit flash effect by tinting the sprite while respecting alpha
             if self.hit_flash_duration > 0:
                 flash_intensity = 1.0 - (self.hit_flash_timer / self.hit_flash_duration)
                 if flash_intensity > 0:
-                    # Get scaled dimensions
-                    scaled_width, scaled_height = self.animated_sprite.animation.get_scaled_dimensions()
-                    
-                    # Create a red overlay surface
-                    overlay = pg.Surface((scaled_width, scaled_height))
-                    overlay.set_alpha(int(100 * flash_intensity))
-                    overlay.fill(self.flash_color)
-                    
-                    overlay_x = render_x - scaled_width // 2
-                    overlay_y = render_y - scaled_height // 2
-                    screen.blit(overlay, (overlay_x, overlay_y))
+                    # Get the current sprite surface from the animation
+                    sprite_surface = self.animated_sprite.animation.get_current_frame()
+                    if sprite_surface:
+                        # Get scaled dimensions
+                        scaled_width, scaled_height = self.animated_sprite.animation.get_scaled_dimensions()
+                        
+                        # Create a copy of the sprite surface to apply tinting
+                        tinted_sprite = sprite_surface.copy()
+                        
+                        # Apply per-pixel tinting that respects alpha
+                        self._apply_hit_flash_tinting(tinted_sprite, flash_intensity)
+                        
+                        # Scale if necessary
+                        if (scaled_width != tinted_sprite.get_width() or 
+                            scaled_height != tinted_sprite.get_height()):
+                            tinted_sprite = pg.transform.scale(tinted_sprite, (scaled_width, scaled_height))
+                        
+                        overlay_x = render_x - scaled_width // 2
+                        overlay_y = render_y - scaled_height // 2
+                        screen.blit(tinted_sprite, (overlay_x, overlay_y))
+                    else:
+                        # Fallback to old method if can't get sprite surface
+                        scaled_width, scaled_height = self.animated_sprite.animation.get_scaled_dimensions()
+                        overlay = pg.Surface((scaled_width, scaled_height), pg.SRCALPHA)
+                        overlay.set_alpha(int(100 * flash_intensity))
+                        overlay.fill(self.flash_color)
+                        
+                        overlay_x = render_x - scaled_width // 2
+                        overlay_y = render_y - scaled_height // 2
+                        screen.blit(overlay, (overlay_x, overlay_y))
         else:
             # Fallback to geometric rendering
             self._render_geometric(screen, render_x, render_y)

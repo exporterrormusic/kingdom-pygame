@@ -33,6 +33,12 @@ class Bullet:
         self.lifespan = None  # Optional lifespan for visual effects
         self.creation_time = None  # Time when bullet was created
         
+        # Dissolving properties
+        self.is_dissolving = False
+        self.dissolve_start_time = 0.0
+        self.dissolve_duration = 0.15  # 0.15 seconds to dissolve
+        self.alpha = 255  # Full opacity initially
+        
         # Calculate velocity from angle
         angle_rad = math.radians(angle)
         self.velocity = pg.Vector2(
@@ -84,7 +90,7 @@ class Bullet:
             self.length = 25  # Length of the laser beam
             self.width = 3   # Width of the laser beam
     
-    def update(self, dt: float, current_game_time: float = None) -> bool:
+    def update(self, dt: float, current_game_time: float = None, world_manager=None) -> bool:
         """Update bullet position and state. Returns True if bullet should be removed."""
         # Check if visual effect bullet should expire first
         if self.lifespan is not None and self.creation_time is not None and current_game_time is not None:
@@ -94,11 +100,29 @@ class Bullet:
         # Update position
         self.pos += self.velocity * dt
         
+        # Check map collision (blocks bullets)
+        if world_manager is not None and hasattr(world_manager, 'is_position_blocked_by_map'):
+            if world_manager.is_position_blocked_by_map(self.pos.x, self.pos.y):
+                return True  # Bullet blocked by map tile
+        
         # Check range limit
-        if self.range_limit is not None:
+        if self.range_limit is not None and not self.is_dissolving:
             distance_traveled = self.pos.distance_to(self.start_pos)
             if distance_traveled >= self.range_limit:
-                return True  # Bullet reached maximum range
+                # Start dissolving instead of immediately removing
+                self.is_dissolving = True
+                self.dissolve_start_time = self.age
+                self.velocity = pg.Vector2(0, 0)  # Stop moving when dissolving
+        
+        # Handle dissolving effect
+        if self.is_dissolving:
+            dissolve_elapsed = self.age - self.dissolve_start_time
+            if dissolve_elapsed >= self.dissolve_duration:
+                return True  # Bullet fully dissolved, remove it
+            else:
+                # Calculate alpha based on dissolve progress
+                progress = dissolve_elapsed / self.dissolve_duration
+                self.alpha = int(255 * (1.0 - progress))  # Fade from 255 to 0
         
         # Update trail
         self.trail_positions.append(self.pos.copy())
@@ -112,15 +136,33 @@ class Bullet:
         if self.age >= self.lifetime:
             return True
             
-        # Check screen bounds
-        if (self.pos.x < -20 or self.pos.x > 1940 or 
-            self.pos.y < -20 or self.pos.y > 1100):
+        # Check if bullet is extremely far from its starting position (avoid infinite bullets)
+        # Use a much larger distance for infinite world gameplay
+        max_travel_distance = 20000  # Allow bullets to travel very far in infinite world
+        if self.pos.distance_to(self.start_pos) > max_travel_distance:
             return True
             
         return False
     
     def render(self, screen: pg.Surface, offset=(0, 0)):
         """Render the bullet with trail effect."""
+        # Apply camera offset
+        render_x = self.pos.x + offset[0]
+        render_y = self.pos.y + offset[1]
+        
+        # Create a temporary surface for alpha blending if dissolving
+        if self.is_dissolving and self.alpha < 255:
+            # Create a temporary surface for alpha rendering
+            temp_surface = pg.Surface((screen.get_width(), screen.get_height()), pg.SRCALPHA)
+            temp_surface.set_alpha(self.alpha)
+            self._render_bullet_content(temp_surface, offset)
+            screen.blit(temp_surface, (0, 0))
+        else:
+            # Render normally
+            self._render_bullet_content(screen, offset)
+    
+    def _render_bullet_content(self, screen: pg.Surface, offset=(0, 0)):
+        """Internal method to render bullet content to the given surface."""
         # Apply camera offset
         render_x = self.pos.x + offset[0]
         render_y = self.pos.y + offset[1]
@@ -1132,8 +1174,15 @@ class Bullet:
     
     def get_rect(self) -> pg.Rect:
         """Get collision rectangle for the bullet."""
-        return pg.Rect(self.pos.x - self.size, self.pos.y - self.size,
-                      self.size * 2, self.size * 2)
+        # Calculate effective collision size based on shape
+        effective_size = self.size
+        if hasattr(self, 'shape') and self.shape == "laser":
+            # Laser bullets (sniper) have much larger visual beam width
+            # Match the visual beam_width = max(size * 4, 24)
+            effective_size = max(self.size * 4, 24) / 2  # Divide by 2 since we're using radius
+        
+        return pg.Rect(self.pos.x - effective_size, self.pos.y - effective_size,
+                      effective_size * 2, effective_size * 2)
 
 class BulletManager:
     """Manages all bullets in the game."""
@@ -1186,9 +1235,10 @@ class BulletManager:
             from src.weapon_manager import weapon_manager
             initial_rate = weapon_manager.get_weapon_property(weapon_type, 'special_mechanics', 'initial_fire_rate', self.base_fire_rate)
             self.current_fire_rate = initial_rate
-            self.minigun_reload_reset = True  # Set flag to prevent restart until fire button released
+            # Clear the reload reset flag when fire button is released
+            self.minigun_reload_reset = False
             if was_firing:  # Only print if we were actually firing continuously
-                print(f"Minigun spin-down: reset to initial rate {initial_rate}")
+                pass  # Spin-down complete
         else:
             self.current_fire_rate = self.base_fire_rate
             
@@ -1220,6 +1270,12 @@ class BulletManager:
     
     def can_shoot(self, current_time: float) -> bool:
         """Check if enough time has passed since last shot."""
+        # Clear any stuck reload reset flag after reasonable time
+        if self.minigun_reload_reset:
+            # Clear the flag after 0.1 seconds to prevent getting stuck
+            if (current_time - self.last_shot_time) > 0.1:
+                self.minigun_reload_reset = False
+            
         return current_time - self.last_shot_time >= self.current_fire_rate
     
     def create_bullet(self, x: float, y: float, angle: float, bullet_type: BulletType = BulletType.PLAYER, damage: int = None, speed: float = 800, size_multiplier: float = 1.0, color: tuple = None, penetration: int = 1, shape: str = None, range_limit: float = None, weapon_type: str = None):
@@ -1242,13 +1298,13 @@ class BulletManager:
         bullet = Bullet(x, y, angle, BulletType.ENEMY_LASER, speed=300)  # Reduced speed for visibility
         self.bullets.append(bullet)
     
-    def update(self, dt: float, current_game_time: float = None):
+    def update(self, dt: float, current_game_time: float = None, world_manager=None):
         """Update all bullets and remove expired ones."""
         # Update bullets and mark for removal
         bullets_to_remove = []
         
         for bullet in self.bullets:
-            if bullet.update(dt, current_game_time):
+            if bullet.update(dt, current_game_time, world_manager):
                 bullets_to_remove.append(bullet)
         
         # Remove expired bullets

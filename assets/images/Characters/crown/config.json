@@ -5,7 +5,7 @@
     "weapon_name": "Your Majesty",
     "weapon_type": "Minigun",
     "stats": {
-        "speed": 55,
+        "speed": 150,
         "hp": 75,
         "burst_gen": 30
     },
