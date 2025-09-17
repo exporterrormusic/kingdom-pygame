@@ -19,6 +19,7 @@ from src.collision import CollisionManager
 from src.visual_effects import EffectsManager
 from src.atmospheric_effects import AtmosphericEffects
 from src.game_states import StateManager, GameState
+from src.menu_states import MenuState
 from src.character_manager import CharacterManager, CharacterSelectionMenu
 from src.weapon_manager import weapon_manager
 from src.camera_system import CameraSystem
@@ -478,6 +479,8 @@ class Game:
                     elif self.state_manager.is_paused():
                         # Let the pause menu handler deal with escape in pause state
                         pass
+                # For other states, let the specific state handlers deal with ESC first
+                # Only show global quit confirmation for states that don't have their own ESC handling
                 
                 # Debug toggles (only in game)
                 if self.state_manager.is_playing():
@@ -498,6 +501,7 @@ class Game:
                         self.selected_character = self.character_selection.get_selected_character()
                         self.character_manager.set_current_character(self.selected_character)
                         self.reset_game()
+                        self.state_manager.start_game_session()  # Mark game session as active
                         self.state_manager.change_state(GameState.PLAYING)
                         # Start battle music
                         self.state_manager.enhanced_menu.start_battle_music()
@@ -519,7 +523,8 @@ class Game:
                             elif result == "settings":
                                 self.state_manager.change_state(GameState.SETTINGS)
                             elif result == "quit":
-                                self.running = False
+                                # Show quit confirmation instead of directly quitting
+                                self.state_manager.show_quit_confirmation(GameState.MENU)
                     # Handle settings menu mouse clicks
                     elif self.state_manager.get_state() == GameState.SETTINGS:
                         self.state_manager.enhanced_menu.handle_settings_mouse_click(mouse_pos)
@@ -540,10 +545,15 @@ class Game:
                             self.selected_character = self.character_selection.get_selected_character()
                             self.character_manager.set_current_character(self.selected_character)
                             self.reset_game()
+                            self.state_manager.start_game_session()  # Mark game session as active
                             self.state_manager.change_state(GameState.PLAYING)
                             self.state_manager.enhanced_menu.start_battle_music()
                         elif result == "back":
                             self.state_manager.change_state(GameState.MENU)
+                    # Handle quit confirmation mouse clicks
+                    elif self.state_manager.is_quit_confirmation():
+                        if not self.state_manager.handle_quit_confirmation_mouse_click(mouse_pos):
+                            self.running = False  # User confirmed quit
             
             elif event.type == pg.MOUSEMOTION:
                 mouse_pos = pg.mouse.get_pos()
@@ -569,17 +579,28 @@ class Game:
             elif self.state_manager.get_state() == GameState.MENU:
                 result = self.state_manager.enhanced_menu.handle_input(event)
                 if result == "quit":
-                    self.running = False
+                    # Show quit confirmation instead of directly quitting
+                    self.state_manager.show_quit_confirmation(GameState.MENU)
+                    # Consume the ESC key to prevent immediate cancellation
+                    if pg.K_ESCAPE in self.keys_just_pressed:
+                        self.keys_just_pressed.remove(pg.K_ESCAPE)
                 elif result == "resume_game":
                     # Resume the paused game
                     self.state_manager.change_state(GameState.PLAYING)
                 elif result == "new_game":
                     self.state_manager.change_state(GameState.CHARACTER_SELECT)
+                elif result == "leaderboard_back":
+                    # ESC was handled by leaderboard - remove from keys_just_pressed to prevent fallback
+                    if pg.K_ESCAPE in self.keys_just_pressed:
+                        self.keys_just_pressed.remove(pg.K_ESCAPE)
                 elif not self.state_manager.handle_enhanced_menu_input(event):
                     self.running = False
             elif self.state_manager.get_state() == GameState.SETTINGS:
                 result = self.state_manager.enhanced_menu.handle_input(event)
                 if result == "back":
+                    # ESC was handled by settings - remove from keys_just_pressed to prevent fallback
+                    if pg.K_ESCAPE in self.keys_just_pressed:
+                        self.keys_just_pressed.remove(pg.K_ESCAPE)
                     # Go back to previous state (pause or main menu)
                     if self.state_manager.previous_state == GameState.PAUSED:
                         self.state_manager.change_state(GameState.PAUSED)
@@ -607,11 +628,23 @@ class Game:
             elif self.state_manager.is_paused():
                 # Update pause menu hover
                 self.state_manager.handle_pause_mouse_hover(mouse_pos)
+            elif self.state_manager.is_quit_confirmation():
+                # Update quit confirmation hover
+                self.state_manager.handle_quit_confirmation_mouse_hover(mouse_pos)
         
         # Handle legacy state-specific input (keeping for compatibility)
         if self.state_manager.is_game_over():
             if not self.state_manager.handle_game_over_input(self.keys_just_pressed):
                 self.running = False
+        elif self.state_manager.is_quit_confirmation():
+            # Handle quit confirmation input
+            result = self.state_manager.handle_quit_confirmation_input(self.keys_just_pressed)
+            if not result:
+                self.running = False  # User confirmed quit
+            else:
+                # ESC was handled by quit confirmation (to cancel) - consume it
+                if pg.K_ESCAPE in self.keys_just_pressed:
+                    self.keys_just_pressed.remove(pg.K_ESCAPE)
                 
         elif self.state_manager.is_paused():
             # Don't process pause input on the same frame we just entered pause
@@ -629,6 +662,16 @@ class Game:
                         print(f"Match ended (quit to menu): Score {final_record.score}, Wave {final_record.waves_survived}, Kills {final_record.enemies_killed}")
             else:
                 self.just_paused = False  # Reset for next frame
+        
+        # Fallback ESC handler for states that didn't handle ESC themselves
+        if pg.K_ESCAPE in self.keys_just_pressed:
+            current_state = self.state_manager.get_state()
+            if current_state in [GameState.CHARACTER_SELECT, GameState.SAVE_LOAD, GameState.GAME_OVER]:
+                self.state_manager.show_quit_confirmation(current_state)
+            elif current_state == GameState.MENU:
+                # For menu state, only show quit confirmation if we're in main menu
+                if self.state_manager.enhanced_menu.get_state() == MenuState.MAIN:
+                    self.state_manager.show_quit_confirmation(current_state)
             
         elif self.state_manager.is_playing():
             # Handle continuous game input
@@ -1470,6 +1513,9 @@ class Game:
                     final_record = self.score_manager.end_match(character_name, self.game_time)
                     print(f"Match completed successfully! Final record: Score {final_record.score}, Wave {final_record.waves_survived}, Kills {final_record.enemies_killed}")
                     
+                    # End the game session
+                    self.state_manager.end_game_session()
+                    
                     # Set game over stats for victory screen
                     self.state_manager.set_game_over_stats(
                         self.score_manager.current_match_score, 
@@ -1597,6 +1643,9 @@ class Game:
                     final_record = self.score_manager.end_match(character_name, self.game_time)
                     print(f"Match ended! Final record: Score {final_record.score}, Wave {final_record.waves_survived}, Kills {final_record.enemies_killed}")
                 
+                # End the game session
+                self.state_manager.end_game_session()
+                
                 self.state_manager.set_game_over_stats(
                     self.score_manager.current_match_score, 
                     self.enemy_manager.get_wave(), 
@@ -1611,7 +1660,8 @@ class Game:
         # Set appropriate cursor based on game state
         current_state = self.state_manager.get_state()
         if current_state in [GameState.WELCOME, GameState.MENU, GameState.SETTINGS, 
-                           GameState.SAVE_LOAD, GameState.CHARACTER_SELECT, GameState.PAUSED, GameState.GAME_OVER]:
+                           GameState.SAVE_LOAD, GameState.CHARACTER_SELECT, GameState.PAUSED, 
+                           GameState.GAME_OVER, GameState.QUIT_CONFIRMATION]:
             self.set_menu_cursor()
         elif current_state == GameState.PLAYING:
             self.set_game_cursor()
@@ -1765,6 +1815,22 @@ class Game:
             
         elif self.state_manager.is_game_over():
             self.state_manager.render_game_over()
+        
+        elif self.state_manager.is_quit_confirmation():
+            # First render the background state (what we're potentially quitting from)
+            if self.state_manager.quit_confirmation_from_state == GameState.MENU:
+                self.state_manager.render_enhanced_menu()
+            elif self.state_manager.quit_confirmation_from_state == GameState.CHARACTER_SELECT:
+                self.character_selection.render(self.screen)
+            elif self.state_manager.quit_confirmation_from_state == GameState.SETTINGS:
+                self.state_manager.render_settings()
+            elif self.state_manager.quit_confirmation_from_state == GameState.SAVE_LOAD:
+                self.state_manager.render_save_load()
+            elif self.state_manager.quit_confirmation_from_state == GameState.GAME_OVER:
+                self.state_manager.render_game_over()
+            
+            # Then render the quit confirmation overlay on top
+            self.state_manager.render_quit_confirmation()
         
         pg.display.flip()
     

@@ -19,6 +19,7 @@ class GameState(Enum):
     PAUSED = "paused"
     SETTINGS = "settings"
     SAVE_LOAD = "save_load"
+    QUIT_CONFIRMATION = "quit_confirmation"
 
 class StateManager:
     """Manages game state transitions and rendering."""
@@ -48,6 +49,14 @@ class StateManager:
         # Pause menu
         self.pause_selection = 0
         self.pause_options = ["Resume", "Settings", "Main Menu"]
+        
+        # Quit confirmation menu
+        self.quit_confirmation_selection = 0
+        self.quit_confirmation_options = ["Yes", "No"]
+        self.quit_confirmation_from_state = None  # Track which state we came from
+        
+        # Game session tracking
+        self.has_active_game = False  # Track if there's an active game session
     
     def handle_welcome_input(self, event) -> bool:
         """Handle input for welcome screen. Returns True if state should change."""
@@ -113,7 +122,33 @@ class StateManager:
             elif self.pause_selection == 1:  # Settings
                 self.change_state(GameState.SETTINGS)
             elif self.pause_selection == 2:  # Main Menu
+                self.end_game_session()  # End the current game session
                 self.change_state(GameState.MENU)
+    
+    def handle_quit_confirmation_input(self, keys_just_pressed: list) -> bool:
+        """Handle input for quit confirmation state. Returns True if should quit."""
+        if pg.K_ESCAPE in keys_just_pressed:
+            # Cancel quit, return to previous state
+            if self.quit_confirmation_from_state:
+                self.change_state(self.quit_confirmation_from_state)
+            return True  # Continue game
+        elif pg.K_LEFT in keys_just_pressed or pg.K_a in keys_just_pressed:
+            self.quit_confirmation_selection = (self.quit_confirmation_selection - 1) % len(self.quit_confirmation_options)
+        elif pg.K_RIGHT in keys_just_pressed or pg.K_d in keys_just_pressed:
+            self.quit_confirmation_selection = (self.quit_confirmation_selection + 1) % len(self.quit_confirmation_options)
+        elif pg.K_UP in keys_just_pressed or pg.K_w in keys_just_pressed:
+            self.quit_confirmation_selection = (self.quit_confirmation_selection - 1) % len(self.quit_confirmation_options)
+        elif pg.K_DOWN in keys_just_pressed or pg.K_s in keys_just_pressed:
+            self.quit_confirmation_selection = (self.quit_confirmation_selection + 1) % len(self.quit_confirmation_options)
+        elif pg.K_RETURN in keys_just_pressed or pg.K_SPACE in keys_just_pressed:
+            if self.quit_confirmation_selection == 0:  # Yes - quit
+                return False  # Signal to quit the game
+            else:  # No - don't quit
+                if self.quit_confirmation_from_state:
+                    self.change_state(self.quit_confirmation_from_state)
+                return True  # Continue game
+        
+        return True  # Continue game by default
     
     def update(self, dt: float):
         """Update state animations and effects."""
@@ -130,6 +165,8 @@ class StateManager:
             self.menu_selection = 0
         elif new_state == GameState.PAUSED:
             self.pause_selection = 0
+        elif new_state == GameState.QUIT_CONFIRMATION:
+            self.quit_confirmation_selection = 1  # Default to "No"
         elif new_state == GameState.CHARACTER_SELECT:
             # Start character select music when entering character selection
             self.enhanced_menu.start_character_select_music()
@@ -140,7 +177,7 @@ class StateManager:
             self.enhanced_menu.set_came_from_paused_game(False)
         elif new_state == GameState.MENU:
             # Set whether we came from a paused game
-            came_from_paused = (self.previous_state == GameState.PAUSED)
+            came_from_paused = (self.previous_state == GameState.PAUSED and self.has_active_game)
             self.enhanced_menu.set_came_from_paused_game(came_from_paused)
             self.enhanced_menu.set_state(MenuState.MAIN)
         elif new_state == GameState.SETTINGS:
@@ -149,6 +186,20 @@ class StateManager:
             self.enhanced_menu.set_state(MenuState.SETTINGS, preserve_music)
         elif new_state == GameState.SAVE_LOAD:
             self.enhanced_menu.set_state(MenuState.SAVE_LOAD)
+    
+    def show_quit_confirmation(self, from_state: GameState):
+        """Show the quit confirmation menu."""
+        self.quit_confirmation_from_state = from_state
+        self.quit_confirmation_selection = 1  # Default to "No"
+        self.change_state(GameState.QUIT_CONFIRMATION)
+    
+    def start_game_session(self):
+        """Mark that a new game session has started."""
+        self.has_active_game = True
+    
+    def end_game_session(self):
+        """Mark that the current game session has ended."""
+        self.has_active_game = False
     
     def render_welcome(self):
         """Render the welcome screen using enhanced menu."""
@@ -334,6 +385,65 @@ class StateManager:
             instruction_rect = instruction_text.get_rect(center=(960, 750 + i * 35))
             self.screen.blit(instruction_text, instruction_rect)
     
+    def render_quit_confirmation(self):
+        """Render the quit confirmation screen."""
+        # Semi-transparent overlay - use dynamic screen dimensions
+        overlay = pg.Surface((self.screen.get_width(), self.screen.get_height()))
+        overlay.set_alpha(150)
+        overlay.fill((0, 0, 0))
+        self.screen.blit(overlay, (0, 0))
+        
+        # Get screen center
+        screen_center_x = self.screen.get_width() // 2
+        screen_center_y = self.screen.get_height() // 2
+        
+        # Main question text (large and prominent)
+        title_font = pg.font.Font(None, 96)
+        title_text = title_font.render("Really Quit?", True, (255, 200, 200))
+        title_rect = title_text.get_rect(center=(screen_center_x, screen_center_y - 150))
+        self.screen.blit(title_text, title_rect)
+        
+        # Warning message (styled like main menu)
+        subtitle_font = pg.font.Font(None, 48)
+        subtitle_text = subtitle_font.render("Your progress will be lost!", True, (255, 150, 150))
+        subtitle_rect = subtitle_text.get_rect(center=(screen_center_x, screen_center_y - 80))
+        self.screen.blit(subtitle_text, subtitle_rect)
+        
+        # Options (styled like main menu buttons)
+        option_font = pg.font.Font(None, 64)
+        option_spacing = 200  # Space between Yes and No
+        
+        for i, option in enumerate(self.quit_confirmation_options):
+            x_pos = screen_center_x - option_spacing//2 + i * option_spacing
+            y_pos = screen_center_y + 20
+            
+            # Selection highlight (main menu style)
+            if i == self.quit_confirmation_selection:
+                highlight_color = (255, 255, 100)  # Yellow highlight like main menu
+                highlight_rect = pg.Rect(x_pos - 80, y_pos - 30, 160, 60)
+                pg.draw.rect(self.screen, highlight_color, highlight_rect, 3, border_radius=8)
+            
+            # Option text with color coding
+            if option == "Yes":
+                text_color = (255, 100, 100) if i == self.quit_confirmation_selection else (255, 150, 150)  # Red-ish
+            else:  # "No"
+                text_color = (100, 255, 100) if i == self.quit_confirmation_selection else (150, 255, 150)  # Green-ish
+            
+            option_text = option_font.render(option, True, text_color)
+            option_rect = option_text.get_rect(center=(x_pos, y_pos))
+            self.screen.blit(option_text, option_rect)
+        
+        # Instructions (main menu style)
+        instruction_font = pg.font.Font(None, 36)
+        instructions = [
+            "SPACE or ENTER to confirm",
+            "ESC to cancel"
+        ]
+        for i, instruction in enumerate(instructions):
+            instruction_text = instruction_font.render(instruction, True, (200, 200, 200))
+            instruction_rect = instruction_text.get_rect(center=(screen_center_x, screen_center_y + 150 + i * 40))
+            self.screen.blit(instruction_text, instruction_rect)
+    
     def set_game_over_stats(self, score: int, wave: int, kills: int):
         """Set the final game stats for game over screen."""
         self.final_score = score
@@ -363,6 +473,10 @@ class StateManager:
     def is_paused(self) -> bool:
         """Check if currently paused."""
         return self.current_state == GameState.PAUSED
+    
+    def is_quit_confirmation(self) -> bool:
+        """Check if currently in quit confirmation state."""
+        return self.current_state == GameState.QUIT_CONFIRMATION
     
     def update_screen_dimensions(self, screen: pg.Surface, width: int, height: int):
         """Update screen dimensions across all systems."""
@@ -407,5 +521,46 @@ class StateManager:
                 elif i == 1:  # Settings
                     return "settings"
                 elif i == 2:  # Main Menu
+                    self.end_game_session()  # End the current game session
                     return "main_menu"
         return None
+    
+    def handle_quit_confirmation_mouse_hover(self, mouse_pos: tuple):
+        """Handle mouse hover on quit confirmation menu options."""
+        screen_center_x = self.screen.get_width() // 2
+        screen_center_y = self.screen.get_height() // 2
+        option_spacing = 200
+        
+        for i, option in enumerate(self.quit_confirmation_options):
+            x_pos = screen_center_x - option_spacing//2 + i * option_spacing
+            y_pos = screen_center_y + 20
+            # Check if mouse is within option bounds
+            option_rect = pg.Rect(x_pos - 80, y_pos - 30, 160, 60)
+            
+            if option_rect.collidepoint(mouse_pos):
+                self.quit_confirmation_selection = i
+                break
+    
+    def handle_quit_confirmation_mouse_click(self, mouse_pos: tuple) -> bool:
+        """Handle mouse clicks on quit confirmation menu options. Returns True if should continue game."""
+        screen_center_x = self.screen.get_width() // 2
+        screen_center_y = self.screen.get_height() // 2
+        option_spacing = 200
+        
+        for i, option in enumerate(self.quit_confirmation_options):
+            x_pos = screen_center_x - option_spacing//2 + i * option_spacing
+            y_pos = screen_center_y + 20
+            # Check if click is within option bounds
+            option_rect = pg.Rect(x_pos - 80, y_pos - 30, 160, 60)
+            
+            if option_rect.collidepoint(mouse_pos):
+                # Update selection and handle action
+                self.quit_confirmation_selection = i
+                if i == 0:  # Yes - quit
+                    return False  # Signal to quit the game
+                else:  # No - don't quit
+                    if self.quit_confirmation_from_state:
+                        self.change_state(self.quit_confirmation_from_state)
+                    return True  # Continue game
+        
+        return True  # Continue game by default

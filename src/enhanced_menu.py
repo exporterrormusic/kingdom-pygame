@@ -2333,7 +2333,7 @@ class EnhancedMenuSystem:
             if event.key == pg.K_ESCAPE:
                 # Return to main menu
                 self.set_state(MenuState.MAIN)
-                return None
+                return "leaderboard_back"  # Return to main menu
             elif event.key == pg.K_UP:
                 # Navigate up in leaderboard
                 if hasattr(self, 'character_manager'):
