@@ -1765,14 +1765,14 @@ class Game:
                 # Render fire trail lines between pellets
                 self.shotgun_effects_manager.render_fire_trail_lines(virtual_surface, shotgun_bullets, virtual_offset)
                 
-                # Shell casings disabled
-                self.minigun_effects_manager.render_shell_casings(virtual_surface, virtual_offset)
-            
-            # Render atmospheric effects particles in world space (on virtual surface)
-            self.atmospheric_effects.render(virtual_surface, virtual_offset)
+            # Shell casings disabled
+            self.minigun_effects_manager.render_shell_casings(virtual_surface, virtual_offset)
             
             # Render footprints in world space (they need to be on the virtual surface to scale properly)
             self.atmospheric_effects.render_footprints(virtual_surface, virtual_offset)
+            
+            # Render atmospheric effects particles in world space (they need to be on the virtual surface)
+            self.atmospheric_effects.render(virtual_surface, virtual_offset)
             
             # If we used a virtual surface, scale it to the screen
             if self.base_zoom != 1.0:
@@ -1783,13 +1783,11 @@ class Game:
                 self.screen.blit(virtual_surface, (0, 0))
             
             # Render atmospheric screen overlays (storm tint, lightning) on top of everything
-            self.atmospheric_effects.render_screen_overlays(self.screen)
-            
-            # Render map debug overlay (after scaling)
+            self.atmospheric_effects.render_screen_overlays(self.screen)            # Render map debug overlay (after scaling)
             self.world_manager.render_map_debug(self.screen, self.calculate_offset())
             
             # Render game UI
-            self.render_game_ui()
+            self.render_game_ui_clean()
             
         elif self.state_manager.is_paused():
             # Render game objects (frozen) with camera shake offset
@@ -1808,7 +1806,7 @@ class Game:
             self.slash_effect_manager.render(self.screen, offset)
             
             # Render game UI
-            self.render_game_ui()
+            self.render_game_ui_clean()
             
             # Render pause overlay
             self.state_manager.render_pause()
@@ -1834,104 +1832,155 @@ class Game:
         
         pg.display.flip()
     
-    def render_game_ui(self):
-        """Render game UI elements."""
+    def draw_clean_ui_panel(self, rect: pg.Rect, alpha: int = 200):
+        """Draw a clean UI panel with main menu styling."""
+        # Panel background
+        panel_surface = pg.Surface((rect.width, rect.height), pg.SRCALPHA)
+        panel_surface.fill((20, 20, 30, alpha))  # Dark semi-transparent
+        self.screen.blit(panel_surface, rect.topleft)
+        
+        # Panel border
+        pg.draw.rect(self.screen, (100, 100, 120), rect, 2, border_radius=8)
+
+    def draw_ui_text_with_shadow(self, text: str, font: pg.font.Font, pos: tuple, 
+                                color: tuple = (255, 255, 255), shadow_color: tuple = (40, 40, 50)):
+        """Draw text with a subtle shadow for readability."""
+        # Shadow
+        shadow_surface = font.render(text, True, shadow_color)
+        shadow_rect = shadow_surface.get_rect()
+        shadow_rect.topleft = (pos[0] + 1, pos[1] + 1)
+        self.screen.blit(shadow_surface, shadow_rect)
+        
+        # Main text
+        text_surface = font.render(text, True, color)
+        text_rect = text_surface.get_rect()
+        text_rect.topleft = pos
+        self.screen.blit(text_surface, text_rect)
+        
+        return text_rect
+
+    def draw_progress_bar(self, rect: pg.Rect, progress: float, 
+                         bg_color: tuple = (50, 50, 50), fill_color: tuple = (100, 255, 100),
+                         border_color: tuple = (100, 100, 120)):
+        """Draw a styled progress bar."""
+        # Background
+        pg.draw.rect(self.screen, bg_color, rect, border_radius=5)
+        
+        # Fill
+        if progress > 0:
+            fill_width = int(rect.width * progress)
+            fill_rect = pg.Rect(rect.x, rect.y, fill_width, rect.height)
+            pg.draw.rect(self.screen, fill_color, fill_rect, border_radius=5)
+        
+        # Border
+        pg.draw.rect(self.screen, border_color, rect, 2, border_radius=5)
+
+    def render_game_ui_clean(self):
+        """Render cleaned up game UI with main menu styling."""
+        
+        # === TOP LEFT PANEL: Score and Wave ===
+        top_panel_width = 300
+        top_panel_height = 120
+        top_panel_rect = pg.Rect(20, 20, top_panel_width, top_panel_height)
+        self.draw_clean_ui_panel(top_panel_rect)
+        
         # Score
-        score_text = self.font.render(f"Score: {self.score_manager.current_match_score}", True, (255, 255, 255))
-        self.screen.blit(score_text, (30, 30))
+        score_text = f"Score: {self.score_manager.current_match_score}"
+        self.draw_ui_text_with_shadow(score_text, self.font, (35, 35))
         
-        # Wave
-        wave_text = self.font.render(f"Wave: {self.enemy_manager.get_wave()}", True, (255, 255, 255))
-        self.screen.blit(wave_text, (30, 80))
-        
-        # World information (if player exists)
+        # Wave with progress bar
         if self.player:
-            # Wave information with survival mode details
-            wave_text = self.small_font.render(f"Wave: {self.enemy_manager.wave}", True, (255, 255, 255))
-            self.screen.blit(wave_text, (30, 130))
+            wave_text = f"Wave: {self.enemy_manager.wave}"
+            self.draw_ui_text_with_shadow(wave_text, self.small_font, (35, 70))
             
             # Wave progress bar
             wave_progress = self.enemy_manager.get_wave_progress()
             time_to_next = self.enemy_manager.get_time_to_next_wave()
             
-            # Progress bar background
-            progress_bar_rect = pg.Rect(30, 150, 200, 10)
-            pg.draw.rect(self.screen, (50, 50, 50), progress_bar_rect)
+            progress_rect = pg.Rect(35, 95, 200, 12)
+            progress_color = (255, 100, 100) if time_to_next < 5 else (100, 255, 100)
+            self.draw_progress_bar(progress_rect, wave_progress, fill_color=progress_color)
             
-            # Progress bar fill
-            progress_width = int(200 * wave_progress)
-            if progress_width > 0:
-                progress_fill_rect = pg.Rect(30, 150, progress_width, 10)
-                progress_color = (255, 100, 100) if time_to_next < 5 else (100, 255, 100)
-                pg.draw.rect(self.screen, progress_color, progress_fill_rect)
-            
-            # Wave timer text
-            timer_text = self.small_font.render(f"Next wave: {time_to_next:.1f}s", True, (255, 255, 255))
-            self.screen.blit(timer_text, (240, 145))
-            
-            # Enemy counts
-            current_enemies = self.enemy_manager.get_enemy_count()
-            target_enemies = getattr(self.enemy_manager, 'target_enemies_this_wave', 0)
-            enemy_text = self.small_font.render(f"Enemies: {current_enemies}/{target_enemies}", True, (255, 255, 255))
-            self.screen.blit(enemy_text, (30, 170))
-                
-        # Rapture Cores display (replaces resource inventory)
-        if self.world_manager and hasattr(self.world_manager, 'core_manager'):
-            from src.core_system import CORE_INFO
-            y_pos = 160  # Moved up since we removed other UI elements
-            
-            # Core count display
-            core_count = self.world_manager.core_manager.get_player_cores()
-            core_text = self.small_font.render(f"Rapture Cores: {core_count}", True, CORE_INFO.color)
-            self.screen.blit(core_text, (30, y_pos))
-            
-            # Draw a small core icon next to the text
-            core_icon_x = 30 + self.small_font.size(f"Rapture Cores: {core_count}")[0] + 10
-            core_icon_y = y_pos + 10
-            pg.draw.circle(self.screen, CORE_INFO.color, (core_icon_x, core_icon_y), 6)
-            pg.draw.circle(self.screen, CORE_INFO.glow_color, (core_icon_x, core_icon_y), 3)
-            
-            # Current objective display
-            objective_text = self.world_manager.get_objective_progress_text()
-            obj_color = (0, 255, 0) if self.world_manager.is_objective_complete() else (255, 255, 0)
-            obj_display = self.small_font.render(f"Objective: {objective_text}", True, obj_color)
-            self.screen.blit(obj_display, (30, y_pos + 25))
+            # Timer text
+            timer_text = f"{time_to_next:.1f}s"
+            self.draw_ui_text_with_shadow(timer_text, self.small_font, (250, 93), (180, 180, 180))
         
-        # Camera zoom level
-        zoom_text = self.small_font.render(f"Zoom: {self.base_zoom:.2f}x (±/-)", True, (200, 200, 200))
-        self.screen.blit(zoom_text, (self.screen_width - 200, 30))
+        # === BOTTOM RIGHT: Rapture Cores ===
+        if self.score_manager and hasattr(self.score_manager, 'player_rapture_cores'):
+            core_count = self.score_manager.player_rapture_cores
+            core_text = f"Cores: {core_count}"
+            
+            # Calculate text size for positioning
+            text_width, text_height = self.small_font.size(core_text)
+            core_panel_width = text_width + 40  # Reduced width
+            core_panel_height = 40
+            
+            # Position up and left to avoid control instructions overlap
+            core_x = self.screen_width - core_panel_width - 20
+            core_y = self.screen_height - core_panel_height - 80  # Moved up by 60px
+            core_panel_rect = pg.Rect(core_x, core_y, core_panel_width, core_panel_height)
+            
+            self.draw_clean_ui_panel(core_panel_rect, alpha=180)
+            
+            # Core text with bright orange color (rapture cores color)
+            text_x = core_x + 15
+            text_y = core_y + (core_panel_height - text_height) // 2
+            self.draw_ui_text_with_shadow(core_text, self.small_font, (text_x, text_y), (255, 140, 0))
         
-        # Controls hint
-        controls_text = self.small_font.render("Controls: WASD + Mouse, +/- Zoom", True, (150, 150, 150))
-        self.screen.blit(controls_text, (self.screen_width - 300, self.screen_height - 30))
-        
-        # Character name (if available)
-        if self.selected_character:
-            char_name = self.character_manager.get_current_character_name()
-            if char_name:
-                char_text = self.small_font.render(f"Playing as: {char_name}", True, (200, 200, 200))
-                self.screen.blit(char_text, (30, self.screen_height - 60))
-        
-        # Render mini-map in top-right corner
+        # === TOP RIGHT: Minimap and Objective ===
+        # Render minimap first
         if self.player:
-            # Get NPCs from world manager 
             npcs = self.world_manager.get_npcs()
-            
-            # Get objectives from world manager if available
             objectives = []
             if hasattr(self.world_manager, 'objectives'):
                 objectives = self.world_manager.objectives
-            elif hasattr(self.world_manager, 'core_manager') and hasattr(self.world_manager.core_manager, 'objectives'):
+            elif hasattr(self.world_manager.core_manager, 'objectives'):
                 objectives = self.world_manager.core_manager.objectives
             
-            # Render the mini-map
             self.minimap.render(self.screen, 
                               (self.player.pos.x, self.player.pos.y),
                               enemies=self.enemy_manager.get_enemies(),
                               npcs=npcs,
                               objectives=objectives)
+            
+            # Objective panel under minimap
+            minimap_bottom_y = self.minimap.margin + self.minimap.height + 10
+            objective_text = "OBJECTIVE: SURVIVE"  # Static survival objective
+            
+            if objective_text:
+                obj_text_width, obj_text_height = self.small_font.size(objective_text)
+                obj_panel_width = obj_text_width + 20
+                obj_panel_height = 35
+                
+                # Right-align to minimap edge (expand leftward)
+                minimap_right_edge = self.screen_width - self.minimap.margin
+                obj_x = minimap_right_edge - obj_panel_width
+                obj_y = minimap_bottom_y
+                obj_panel_rect = pg.Rect(obj_x, obj_y, obj_panel_width, obj_panel_height)
+                
+                self.draw_clean_ui_panel(obj_panel_rect, alpha=180)
+                
+                # Objective text (survival theme color)
+                obj_color = (255, 200, 100)  # Warm survival color
+                text_x = obj_x + 10
+                text_y = obj_y + (obj_panel_height - obj_text_height) // 2
+                self.draw_ui_text_with_shadow(objective_text, self.small_font, (text_x, text_y), obj_color)
         
-        # Performance debug info (F3 to toggle)
+        # === BOTTOM LEFT: Character and Controls (subtle) ===
+        if self.selected_character:
+            char_name = self.character_manager.get_current_character_name()
+            if char_name:
+                char_text = f"Playing as: {char_name}"
+                self.draw_ui_text_with_shadow(char_text, self.small_font, (30, self.screen_height - 80), (180, 180, 180))
+        
+        # Controls hint (very subtle)
+        controls_text = "WASD + Mouse • +/- Zoom"
+        controls_width = self.small_font.size(controls_text)[0]
+        self.draw_ui_text_with_shadow(controls_text, self.small_font, 
+                                     (self.screen_width - controls_width - 20, self.screen_height - 30), 
+                                     (120, 120, 120))
+        
+        # === DEBUG INFO (if enabled) ===
         if self.show_debug_info:
             debug_y = self.screen_height - 125
             

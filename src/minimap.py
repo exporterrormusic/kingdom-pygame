@@ -151,10 +151,10 @@ class MiniMap:
         # Blit to main screen
         screen.blit(self.surface, (pos_x, pos_y))
         
-        # Add mini-map label
-        font = pg.font.Font(None, 24)
-        label = font.render("MAP", True, (255, 255, 255))
-        label_rect = label.get_rect()
-        label_rect.centerx = pos_x + self.width // 2
-        label_rect.bottom = pos_y - 5
-        screen.blit(label, label_rect)
+        # Mini-map label removed for cleaner UI
+        # font = pg.font.Font(None, 24)
+        # label = font.render("MAP", True, (255, 255, 255))
+        # label_rect = label.get_rect()
+        # label_rect.centerx = pos_x + self.width // 2
+        # label_rect.bottom = pos_y - 5
+        # screen.blit(label, label_rect)

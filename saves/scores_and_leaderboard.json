@@ -1,5 +1,5 @@
 {
-  "player_rapture_cores": 59,
+  "player_rapture_cores": 226,
   "character_leaderboards": {
     "cecil": [
       {
@@ -17,15 +17,103 @@
         "survival_time_seconds": 3,
         "date": "2025-09-16 18:54:34",
         "character_name": "cecil"
+      },
+      {
+        "score": 10,
+        "waves_survived": 1,
+        "enemies_killed": 1,
+        "survival_time_seconds": 9,
+        "date": "2025-09-17 14:55:43",
+        "character_name": "cecil"
+      },
+      {
+        "score": 10,
+        "waves_survived": 1,
+        "enemies_killed": 1,
+        "survival_time_seconds": 11,
+        "date": "2025-09-17 15:03:23",
+        "character_name": "cecil"
+      },
+      {
+        "score": 10,
+        "waves_survived": 1,
+        "enemies_killed": 1,
+        "survival_time_seconds": 3,
+        "date": "2025-09-17 15:44:04",
+        "character_name": "cecil"
+      },
+      {
+        "score": 10,
+        "waves_survived": 1,
+        "enemies_killed": 1,
+        "survival_time_seconds": 3,
+        "date": "2025-09-17 15:55:37",
+        "character_name": "cecil"
+      },
+      {
+        "score": 0,
+        "waves_survived": 1,
+        "enemies_killed": 0,
+        "survival_time_seconds": 1,
+        "date": "2025-09-17 15:01:25",
+        "character_name": "cecil"
+      },
+      {
+        "score": 0,
+        "waves_survived": 1,
+        "enemies_killed": 0,
+        "survival_time_seconds": 0,
+        "date": "2025-09-17 15:06:21",
+        "character_name": "cecil"
+      },
+      {
+        "score": 0,
+        "waves_survived": 1,
+        "enemies_killed": 0,
+        "survival_time_seconds": 5,
+        "date": "2025-09-17 15:14:25",
+        "character_name": "cecil"
+      },
+      {
+        "score": 0,
+        "waves_survived": 1,
+        "enemies_killed": 0,
+        "survival_time_seconds": 1,
+        "date": "2025-09-17 15:22:03",
+        "character_name": "cecil"
       }
     ],
     "crown": [
+      {
+        "score": 80,
+        "waves_survived": 1,
+        "enemies_killed": 8,
+        "survival_time_seconds": 11,
+        "date": "2025-09-17 15:51:27",
+        "character_name": "crown"
+      },
       {
         "score": 70,
         "waves_survived": 1,
         "enemies_killed": 7,
         "survival_time_seconds": 10,
         "date": "2025-09-16 21:22:32",
+        "character_name": "crown"
+      },
+      {
+        "score": 0,
+        "waves_survived": 1,
+        "enemies_killed": 0,
+        "survival_time_seconds": 3,
+        "date": "2025-09-17 16:02:15",
+        "character_name": "crown"
+      },
+      {
+        "score": 0,
+        "waves_survived": 1,
+        "enemies_killed": 0,
+        "survival_time_seconds": 0,
+        "date": "2025-09-17 16:02:17",
         "character_name": "crown"
       }
     ],
@@ -37,6 +125,30 @@
         "survival_time_seconds": 11,
         "date": "2025-09-16 23:29:09",
         "character_name": "rapunzel"
+      },
+      {
+        "score": 10,
+        "waves_survived": 1,
+        "enemies_killed": 1,
+        "survival_time_seconds": 3,
+        "date": "2025-09-17 15:51:32",
+        "character_name": "rapunzel"
+      },
+      {
+        "score": 0,
+        "waves_survived": 1,
+        "enemies_killed": 0,
+        "survival_time_seconds": 0,
+        "date": "2025-09-17 15:29:02",
+        "character_name": "rapunzel"
+      },
+      {
+        "score": 0,
+        "waves_survived": 1,
+        "enemies_killed": 0,
+        "survival_time_seconds": 0,
+        "date": "2025-09-17 15:29:04",
+        "character_name": "rapunzel"
       }
     ],
     "snow-white": [
@@ -46,6 +158,30 @@
         "enemies_killed": 2,
         "survival_time_seconds": 4,
         "date": "2025-09-16 23:33:48",
+        "character_name": "snow-white"
+      },
+      {
+        "score": 0,
+        "waves_survived": 1,
+        "enemies_killed": 0,
+        "survival_time_seconds": 1,
+        "date": "2025-09-17 15:22:30",
+        "character_name": "snow-white"
+      },
+      {
+        "score": 0,
+        "waves_survived": 1,
+        "enemies_killed": 0,
+        "survival_time_seconds": 1,
+        "date": "2025-09-17 15:29:07",
+        "character_name": "snow-white"
+      },
+      {
+        "score": 0,
+        "waves_survived": 1,
+        "enemies_killed": 0,
+        "survival_time_seconds": 1,
+        "date": "2025-09-17 15:29:09",
         "character_name": "snow-white"
       }
     ],
@@ -130,7 +266,235 @@
         "date": "2025-09-17 01:21:35",
         "character_name": "kilo"
       }
+    ],
+    "scarlet": [
+      {
+        "score": 650,
+        "waves_survived": 1,
+        "enemies_killed": 65,
+        "survival_time_seconds": 139,
+        "date": "2025-09-17 02:21:50",
+        "character_name": "scarlet"
+      },
+      {
+        "score": 10,
+        "waves_survived": 1,
+        "enemies_killed": 1,
+        "survival_time_seconds": 3,
+        "date": "2025-09-17 16:02:10",
+        "character_name": "scarlet"
+      },
+      {
+        "score": 0,
+        "waves_survived": 1,
+        "enemies_killed": 0,
+        "survival_time_seconds": 1,
+        "date": "2025-09-17 15:22:27",
+        "character_name": "scarlet"
+      }
+    ],
+    "trony": [
+      {
+        "score": 450,
+        "waves_survived": 1,
+        "enemies_killed": 45,
+        "survival_time_seconds": 108,
+        "date": "2025-09-17 02:30:10",
+        "character_name": "trony"
+      }
+    ],
+    "commander": [
+      {
+        "score": 20,
+        "waves_survived": 1,
+        "enemies_killed": 2,
+        "survival_time_seconds": 16,
+        "date": "2025-09-17 14:56:01",
+        "character_name": "commander"
+      },
+      {
+        "score": 0,
+        "waves_survived": 1,
+        "enemies_killed": 0,
+        "survival_time_seconds": 8,
+        "date": "2025-09-17 14:59:11",
+        "character_name": "commander"
+      },
+      {
+        "score": 0,
+        "waves_survived": 1,
+        "enemies_killed": 0,
+        "survival_time_seconds": 2,
+        "date": "2025-09-17 15:07:25",
+        "character_name": "commander"
+      },
+      {
+        "score": 0,
+        "waves_survived": 1,
+        "enemies_killed": 0,
+        "survival_time_seconds": 1,
+        "date": "2025-09-17 15:22:07",
+        "character_name": "commander"
+      },
+      {
+        "score": 0,
+        "waves_survived": 1,
+        "enemies_killed": 0,
+        "survival_time_seconds": 1,
+        "date": "2025-09-17 15:34:44",
+        "character_name": "commander"
+      },
+      {
+        "score": 0,
+        "waves_survived": 1,
+        "enemies_killed": 0,
+        "survival_time_seconds": 1,
+        "date": "2025-09-17 15:51:14",
+        "character_name": "commander"
+      },
+      {
+        "score": 0,
+        "waves_survived": 1,
+        "enemies_killed": 0,
+        "survival_time_seconds": 4,
+        "date": "2025-09-17 15:57:07",
+        "character_name": "commander"
+      },
+      {
+        "score": 0,
+        "waves_survived": 1,
+        "enemies_killed": 0,
+        "survival_time_seconds": 1,
+        "date": "2025-09-17 15:57:09",
+        "character_name": "commander"
+      }
+    ],
+    "marian": [
+      {
+        "score": 10,
+        "waves_survived": 1,
+        "enemies_killed": 1,
+        "survival_time_seconds": 9,
+        "date": "2025-09-17 15:22:17",
+        "character_name": "marian"
+      },
+      {
+        "score": 10,
+        "waves_survived": 1,
+        "enemies_killed": 1,
+        "survival_time_seconds": 11,
+        "date": "2025-09-17 15:55:51",
+        "character_name": "marian"
+      },
+      {
+        "score": 0,
+        "waves_survived": 1,
+        "enemies_killed": 0,
+        "survival_time_seconds": 4,
+        "date": "2025-09-17 14:59:18",
+        "character_name": "marian"
+      },
+      {
+        "score": 0,
+        "waves_survived": 1,
+        "enemies_killed": 0,
+        "survival_time_seconds": 0,
+        "date": "2025-09-17 15:07:28",
+        "character_name": "marian"
+      },
+      {
+        "score": 0,
+        "waves_survived": 1,
+        "enemies_killed": 0,
+        "survival_time_seconds": 1,
+        "date": "2025-09-17 15:14:34",
+        "character_name": "marian"
+      },
+      {
+        "score": 0,
+        "waves_survived": 1,
+        "enemies_killed": 0,
+        "survival_time_seconds": 1,
+        "date": "2025-09-17 15:28:56",
+        "character_name": "marian"
+      },
+      {
+        "score": 0,
+        "waves_survived": 1,
+        "enemies_killed": 0,
+        "survival_time_seconds": 1,
+        "date": "2025-09-17 15:28:58",
+        "character_name": "marian"
+      },
+      {
+        "score": 0,
+        "waves_survived": 1,
+        "enemies_killed": 0,
+        "survival_time_seconds": 1,
+        "date": "2025-09-17 15:29:00",
+        "character_name": "marian"
+      }
+    ],
+    "sin": [
+      {
+        "score": 0,
+        "waves_survived": 1,
+        "enemies_killed": 0,
+        "survival_time_seconds": 4,
+        "date": "2025-09-17 15:22:24",
+        "character_name": "sin"
+      },
+      {
+        "score": 0,
+        "waves_survived": 1,
+        "enemies_killed": 0,
+        "survival_time_seconds": 2,
+        "date": "2025-09-17 15:26:17",
+        "character_name": "sin"
+      },
+      {
+        "score": 0,
+        "waves_survived": 1,
+        "enemies_killed": 0,
+        "survival_time_seconds": 2,
+        "date": "2025-09-17 15:26:21",
+        "character_name": "sin"
+      },
+      {
+        "score": 0,
+        "waves_survived": 1,
+        "enemies_killed": 0,
+        "survival_time_seconds": 2,
+        "date": "2025-09-17 15:29:14",
+        "character_name": "sin"
+      },
+      {
+        "score": 0,
+        "waves_survived": 1,
+        "enemies_killed": 0,
+        "survival_time_seconds": 2,
+        "date": "2025-09-17 16:02:00",
+        "character_name": "sin"
+      },
+      {
+        "score": 0,
+        "waves_survived": 1,
+        "enemies_killed": 0,
+        "survival_time_seconds": 0,
+        "date": "2025-09-17 16:02:05",
+        "character_name": "sin"
+      }
+    ],
+    "wells": [
+      {
+        "score": 0,
+        "waves_survived": 1,
+        "enemies_killed": 0,
+        "survival_time_seconds": 0,
+        "date": "2025-09-17 16:02:03",
+        "character_name": "wells"
+      }
     ]
   },
-  "last_saved": "2025-09-17 01:51:19"
+  "last_saved": "2025-09-17 16:02:17"
 }
