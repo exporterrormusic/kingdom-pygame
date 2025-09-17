@@ -273,11 +273,19 @@ class Enemy:
         """Check if enemy is still alive."""
         return self.health > 0
     
+    def _render_enemy_glow(self, screen: pg.Surface, render_x: int, render_y: int):
+        """Enemy glow is now handled by the dynamic lighting system."""
+        # Old gradient-based glow disabled - now using dynamic lighting system
+        pass
+
     def render(self, screen: pg.Surface, offset=(0, 0)):
         """Render the enemy."""
         # Apply camera offset
         render_x = int(self.pos.x + offset[0])
         render_y = int(self.pos.y + offset[1])
+        
+        # Draw enemy glow effect (behind enemy body)
+        self._render_enemy_glow(screen, render_x, render_y)
         
         if self.use_sprites and self.animated_sprite:
             # Render sprite animation
@@ -373,15 +381,21 @@ class EnemyManager:
         self.spawn_timer = 0.0
         self.base_spawn_interval = 1.5  # Base spawn time
         self.spawn_interval = self.base_spawn_interval
-        # Remove max_enemies for infinite spawning (performance-limited only)
         
-        # Time-based progression system
+        # Survival mode wave system (30-second waves)
         self.game_time = 0.0  # Total time elapsed since game start
-        self.time_spawn_multiplier = 1.0  # Spawn rate multiplier based on time
-        
-        # Wave system
         self.wave = 1
+        self.wave_timer = 0.0  # Time since current wave started
+        self.wave_duration = 30.0  # 30 seconds per wave
         self.enemies_killed = 0
+        self.enemies_killed_this_wave = 0
+        
+        # Wave progression parameters
+        self.base_enemy_count = 8  # Starting enemy count per wave
+        self.enemy_count_increase = 2  # +2 enemies per wave
+        self.max_enemies_per_wave = 50  # Performance limit
+        self.enemies_spawned_this_wave = 0
+        self.target_enemies_this_wave = self.base_enemy_count
         
         # Removed biome system - using wave system instead
         self.initial_spawn_grace_period = 3.0  # Prevent spawning for first 3 seconds
@@ -580,57 +594,49 @@ class EnemyManager:
     
     def update(self, dt: float, player_pos: pg.Vector2, current_time: float, bullet_manager=None, 
                zoom_level: float = 1.0, screen_width: int = 1920, screen_height: int = 1080):
-        """Update all enemies and handle spawning with performance optimizations."""
-        # Performance limiting: Cap maximum enemy count based on hardware capability
-        max_enemies = min(50, 20 + self.wave * 2)  # Gradually increase limit, cap at 50
-        
-        # Update game time for progression
+        """Update all enemies and handle 30-second survival wave system."""
+        # Update game time and wave timer
         self.game_time += dt
-        
-        # Calculate time-based spawn rate multiplier (increases over time)
-        # Every 30 seconds, spawn rate doubles (spawn interval halves)
-        time_minutes = self.game_time / 60.0
-        self.time_spawn_multiplier = 2.0 ** (time_minutes / 0.5)  # Exponential increase
+        self.wave_timer += dt
         
         # Update initial spawn grace period
         if self.initial_spawn_grace_period > 0:
             self.initial_spawn_grace_period -= dt
+            
+        # Check for new wave every 30 seconds
+        if self.wave_timer >= self.wave_duration:
+            self.start_new_wave()
+        
+        # Calculate target enemies for current wave
+        self.target_enemies_this_wave = min(
+            self.base_enemy_count + (self.wave - 1) * self.enemy_count_increase,
+            self.max_enemies_per_wave
+        )
         
         # Use wave-based danger level instead of biome
         wave_danger_level = min(5, self.wave)  # Cap at 5 for balance
         
-        # Simplified spawning without biome changes - just focus on wave progression
-        # Check if player has moved to a significantly new area (pre-population)
-        current_chunk = (int(player_pos.x // 2000), int(player_pos.y // 2000))  # 2000x2000 pixel chunks
-        if self.last_player_chunk != current_chunk:
-            self.last_player_chunk = current_chunk
-            # Pre-populate the new area with enemies if we've moved significantly
-            if self.initial_spawn_grace_period <= 0:
-                self.pre_populate_area(player_pos, zoom_level, screen_width, screen_height)
+        # Survival mode spawning - spawn enemies up to wave target
+        current_enemy_count = len(self.enemies)
         
-        # Performance optimization: Only spawn if under enemy limit
-        if len(self.enemies) >= max_enemies:
-            # Skip spawning entirely when at capacity
-            self.spawn_timer = 0.0  # Reset spawn timer to prevent immediate spawn when enemies die
-        else:
-            # Wave-based spawning (simpler than biome system) with time progression
-            wave_spawn_multiplier = 1.0 / (1.0 + (wave_danger_level - 1) * 0.3)  # Faster spawning in higher waves
+        # Only spawn if we haven't reached the target for this wave and grace period is over
+        if (current_enemy_count < self.target_enemies_this_wave and 
+            self.enemies_spawned_this_wave < self.target_enemies_this_wave and
+            self.initial_spawn_grace_period <= 0):
             
-            # Distance-based spawn rate scaling
-            distance_from_world_spawn = player_pos.distance_to(pg.Vector2(0, 0))
-            # Exponential scaling: closer to borders = exponentially faster spawning
-            distance_normalized = min(distance_from_world_spawn / 3000.0, 1.0)  # Normalize to 0-1 (smaller world)
-            distance_multiplier = 1.0 / (0.1 + 0.9 * (1.0 - distance_normalized) ** 2)  # Exponential curve
+            # Faster spawning at the start of each wave
+            wave_progress = self.wave_timer / self.wave_duration
+            if wave_progress < 0.3:  # First 9 seconds of wave - rapid spawning
+                self.spawn_interval = 0.5
+            else:  # Rest of wave - slower spawning
+                self.spawn_interval = 2.0
             
-            # Combine all multipliers including time-based progression
-            combined_multiplier = wave_spawn_multiplier * distance_multiplier * (1.0 / self.time_spawn_multiplier)
-            self.spawn_interval = self.base_spawn_interval * max(0.01, combined_multiplier)  # Never slower than 100x normal rate
-            
-            # Update spawn timer (but don't spawn during grace period)
+            # Update spawn timer
             self.spawn_timer += dt
-            if self.spawn_timer >= self.spawn_interval and self.initial_spawn_grace_period <= 0:
+            if self.spawn_timer >= self.spawn_interval:
                 self.spawn_enemy(screen_width, screen_height, player_pos, zoom_level)
                 self.spawn_timer = 0.0
+                self.enemies_spawned_this_wave += 1
 
         # Update all enemies with performance optimizations
         enemies_to_remove = []
@@ -716,7 +722,7 @@ class EnemyManager:
         # Handle enemy-to-enemy collision to prevent overlapping
         self._handle_enemy_collisions()
 
-        # Remove dead enemies and drop cores
+        # Remove dead enemies and track kills for survival mode
         for enemy in enemies_to_remove:
             # Drop cores when enemy dies (if world manager and core system available)
             if self.world_manager and hasattr(self.world_manager, 'core_manager'):
@@ -732,13 +738,8 @@ class EnemyManager:
                 )
             
             self.enemies.remove(enemy)
-            
-        # Update wave if enough enemies killed
-        if self.enemies_killed >= self.wave * 10:
-            self.wave += 1
-            # Gradually increase difficulty each wave (spawn interval only - no enemy limits)
-            self.base_spawn_interval = max(0.8, self.base_spawn_interval * 0.95)  # Slower reduction
-        
+            self.enemies_killed += 1
+            self.enemies_killed_this_wave += 1
         # Performance optimization: Cull enemies that are too far from player
         cull_distance = 4000  # Remove enemies beyond this distance
         enemies_to_cull = []
@@ -750,6 +751,29 @@ class EnemyManager:
         # Remove culled enemies (without dropping cores to maintain balance)
         for enemy in enemies_to_cull:
             self.enemies.remove(enemy)
+    
+    def start_new_wave(self):
+        """Start a new survival wave."""
+        self.wave += 1
+        self.wave_timer = 0.0
+        self.enemies_killed_this_wave = 0
+        self.enemies_spawned_this_wave = 0
+        
+        # Calculate new target enemy count for this wave
+        self.target_enemies_this_wave = min(
+            self.base_enemy_count + (self.wave - 1) * self.enemy_count_increase,
+            self.max_enemies_per_wave
+        )
+        
+        print(f"Wave {self.wave} started! Target enemies: {self.target_enemies_this_wave}")
+    
+    def get_wave_progress(self) -> float:
+        """Get current wave progress (0.0 to 1.0)."""
+        return min(1.0, self.wave_timer / self.wave_duration)
+    
+    def get_time_to_next_wave(self) -> float:
+        """Get seconds remaining until next wave."""
+        return max(0.0, self.wave_duration - self.wave_timer)
     
     def render(self, screen: pg.Surface, offset=(0, 0)):
         """Render all enemies."""
@@ -777,6 +801,8 @@ class EnemyManager:
                 )
             
             self.enemies.remove(enemy)
+            self.enemies_killed += 1
+            self.enemies_killed_this_wave += 1
     
     def _handle_enemy_collisions(self):
         """Handle collision detection between enemies with smooth bubble physics."""

@@ -250,9 +250,9 @@ class Player:
         return pg.Vector2(tip_x, tip_y)
     
     def add_hit_flash(self):
-        """Add red flash effect when player is hit."""
-        self.hit_flash_duration = 0.3  # Flash duration in seconds
-        self.hit_flash_timer = 0.0
+        """Add red flash effect when player is hit - DISABLED (using screen border instead)."""
+        # Disabled to prevent white flash issues - using red screen border in main.py instead
+        pass
     
     def update_hit_flash(self, dt: float):
         """Update hit flash effect."""

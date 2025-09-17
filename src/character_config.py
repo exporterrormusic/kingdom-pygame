@@ -12,11 +12,7 @@ class CharacterStats:
     """Character statistics data class."""
     speed: int
     hp: int
-    burst_gen: int
-    """Character statistics data class."""
-    speed: int
-    hp: int
-    burst_gen: int
+    burst_multiplier: int
 
 @dataclass
 class SpriteInfo:
@@ -31,7 +27,6 @@ class BurstAbility:
     """Burst ability data class."""
     name: str
     description: str
-    cooldown: float
     damage_multiplier: float
 
 @dataclass
@@ -93,7 +88,7 @@ class CharacterConfigManager:
             stats = CharacterStats(
                 speed=stats_data['speed'],
                 hp=stats_data['hp'],
-                burst_gen=stats_data['burst_gen']
+                burst_multiplier=stats_data['burst_multiplier']
             )
             
             # Create SpriteInfo
@@ -110,7 +105,6 @@ class CharacterConfigManager:
             burst_ability = BurstAbility(
                 name=burst_data['name'],
                 description=burst_data['description'],
-                cooldown=burst_data['cooldown'],
                 damage_multiplier=burst_data['damage_multiplier']
             )
             

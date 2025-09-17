@@ -1,6 +1,6 @@
 """
-Enhanced menu system for S.A.C.K. BATTLE: A NIKKE FAN GAME
-Includes welcome screen, main menu, and settings with music support.
+Enhanced menu system for KINGDOM CLEANUP: A NIKKE FAN GAME
+Now modularized for better maintainability.
 """
 
 import pygame as pg
@@ -10,101 +10,9 @@ import random
 from typing import Optional, Dict, List, Tuple
 from enum import Enum
 from src.save_manager import GameSaveManager, SaveSlot
+from src.audio_manager import AudioManager
+from src.menu_states import MenuState, MenuStateManager
 
-class MenuState(Enum):
-    """Different menu states."""
-    WELCOME = "welcome"
-    MAIN = "main"
-    SETTINGS = "settings"
-    SAVE_LOAD = "save_load"
-
-class AudioManager:
-    """Handles background music and sound effects."""
-    
-    def __init__(self):
-        """Initialize the audio manager."""
-        pg.mixer.init(frequency=22050, size=-16, channels=2, buffer=512)
-        pg.mixer.set_num_channels(16)  # Increase number of channels for better sound mixing
-        self.current_music = None
-        self.music_volume = 0.7
-        self.sfx_volume = 0.8
-        self.music_paused = False
-        self.sound_cache = {}  # Cache for sound effects
-        self.burst_channel = pg.mixer.Channel(15)  # Dedicated channel for burst sounds
-        
-    def play_music(self, music_path: str, loop: bool = True):
-        """Play background music."""
-        if self.current_music != music_path:
-            try:
-                pg.mixer.music.load(music_path)
-                pg.mixer.music.set_volume(self.music_volume)
-                pg.mixer.music.play(-1 if loop else 0)
-                self.current_music = music_path
-                print(f"Playing music: {music_path}")
-            except Exception as e:
-                print(f"Could not load music {music_path}: {e}")
-    
-    def stop_music(self):
-        """Stop background music."""
-        pg.mixer.music.stop()
-        self.current_music = None
-    
-    def pause_music(self):
-        """Pause background music."""
-        pg.mixer.music.pause()
-        self.music_paused = True
-    
-    def resume_music(self):
-        """Resume background music."""
-        pg.mixer.music.unpause()
-        self.music_paused = False
-    
-    def set_music_volume(self, volume: float):
-        """Set music volume (0.0 to 1.0)."""
-        self.music_volume = max(0.0, min(1.0, volume))
-        pg.mixer.music.set_volume(self.music_volume)
-    
-    def set_sfx_volume(self, volume: float):
-        """Set SFX volume (0.0 to 1.0)."""
-        self.sfx_volume = max(0.0, min(1.0, volume))
-    
-    def load_sound(self, sound_path: str) -> Optional[pg.mixer.Sound]:
-        """Load and cache a sound effect."""
-        if sound_path in self.sound_cache:
-            return self.sound_cache[sound_path]
-        
-        try:
-            if os.path.exists(sound_path):
-                sound = pg.mixer.Sound(sound_path)
-                sound.set_volume(self.sfx_volume)
-                self.sound_cache[sound_path] = sound
-                print(f"Loaded sound: {sound_path}")
-                return sound
-            else:
-                print(f"Sound file not found: {sound_path}")
-                return None
-        except Exception as e:
-            print(f"Could not load sound {sound_path}: {e}")
-            return None
-    
-    def play_sound(self, sound_path: str):
-        """Play a sound effect."""
-        sound = self.load_sound(sound_path)
-        if sound:
-            sound.set_volume(self.sfx_volume)
-            sound.play()
-    
-    def play_burst_sound(self, character_name: str):
-        """Play character-specific burst sound on dedicated channel."""
-        burst_path = f"assets/images/Characters/{character_name}/burst.mp3"
-        sound = self.load_sound(burst_path)
-        if sound:
-            # Stop any currently playing burst sound and play new one
-            if self.burst_channel.get_busy():
-                self.burst_channel.stop()
-            sound.set_volume(self.sfx_volume)
-            self.burst_channel.play(sound)
-            print(f"Playing burst sound for {character_name}")
 
 class EnhancedMenuSystem:
     """Enhanced menu system with welcome screen, main menu, and settings."""
@@ -113,7 +21,11 @@ class EnhancedMenuSystem:
         """Initialize the enhanced menu system."""
         self.screen_width = screen_width
         self.screen_height = screen_height
-        self.current_state = MenuState.WELCOME
+        self.current_state = MenuState.MAIN  # Start with main menu, skip welcome screen
+        
+        # Track previous game state to handle escape key properly
+        self.came_from_paused_game = False
+        
         # Animation states
         self.animation_time = 0.0
         self.grid_alpha = 30  # Base alpha for grid overlay
@@ -135,7 +47,7 @@ class EnhancedMenuSystem:
         
         # Menu selection
         self.main_menu_selection = 0
-        self.main_menu_options = ["NEW GAME", "LOAD GAME", "SETTINGS", "QUIT"]
+        self.main_menu_options = ["LEADERBOARDS", "ACHIEVEMENTS", "SHOP", "PLAY", "THE OUTPOST", "SETTINGS", "QUIT"]
         
         # Save/Load menu
         self.save_load_selection = 0
@@ -171,12 +83,16 @@ class EnhancedMenuSystem:
         # Load menu assets
         self.load_assets()
         
-        # Initialize fonts
-        self.title_font = pg.font.Font(None, 120)
-        self.subtitle_font = pg.font.Font(None, 60)
+        # Initialize fonts - pixel art style with crisp rendering
+        self.title_font = pg.font.Font(None, 140)  # Larger for more impact
+        self.subtitle_font = pg.font.Font(None, 48)  # Smaller for better hierarchy
         self.menu_font = pg.font.Font(None, 48)
         self.small_font = pg.font.Font(None, 32)
         self.large_font = pg.font.Font(None, 72)
+        
+        # Pixel art specific fonts - use None for crisp system font
+        self.pixel_title_font = pg.font.Font(None, 96)  # Perfect pixel size
+        self.pixel_subtitle_font = pg.font.Font(None, 40)  # Complementary pixel size
         
         # Colors - Clean White Theme (matching main menu)
         self.primary_color = (255, 255, 255)    # Pure white
@@ -187,6 +103,13 @@ class EnhancedMenuSystem:
         self.glow_color = (200, 200, 200)       # Light glow
         self.warning_color = (255, 100, 100)    # Red warning
         self.success_color = (100, 255, 100)    # Green success
+    
+    def set_dependencies(self, character_manager=None, score_manager=None):
+        """Set external dependencies for advanced features like leaderboards."""
+        if character_manager:
+            self.character_manager = character_manager
+        if score_manager:
+            self.score_manager = score_manager
         
     def load_assets(self):
         """Load menu assets."""
@@ -234,27 +157,8 @@ class EnhancedMenuSystem:
     
     def load_random_main_menu_background(self):
         """Load a random background from the BKG folder for main menu."""
-        try:
-            bkg_folder = "assets/images/Menu/BKG"
-            if os.path.exists(bkg_folder):
-                backgrounds = [f for f in os.listdir(bkg_folder) if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
-                if backgrounds:
-                    random_bg = random.choice(backgrounds)
-                    bg_path = os.path.join(bkg_folder, random_bg)
-                    self.main_menu_bg = pg.image.load(bg_path)
-                    self.main_menu_bg = pg.transform.scale(self.main_menu_bg, (self.screen_width, self.screen_height))
-                    print(f"Loaded random main menu background: {random_bg}")
-                    return
-            
-            # Fallback if no backgrounds found
-            self.main_menu_bg = pg.Surface((self.screen_width, self.screen_height))
-            self.main_menu_bg.fill((20, 20, 40))
-            print("Using default main menu background")
-            
-        except Exception as e:
-            print(f"Error loading random background: {e}")
-            self.main_menu_bg = pg.Surface((self.screen_width, self.screen_height))
-            self.main_menu_bg.fill((20, 20, 40))
+        # Disabled when using venetian blinds carousel - backgrounds are handled by the carousel system
+        return
     
     def start_welcome_music(self):
         """Start playing welcome music."""
@@ -264,16 +168,55 @@ class EnhancedMenuSystem:
         """Start playing main menu music."""
         self.audio_manager.play_music("assets/sounds/music/main-menu.mp3")
     
+    def _get_random_battle_music(self) -> str:
+        """Get a random battle music file from the battle music folder."""
+        battle_music_dir = "assets/sounds/music/battle"
+        try:
+            # Get all .wav and .mp3 files from the battle music directory
+            battle_files = []
+            if os.path.exists(battle_music_dir):
+                for file in os.listdir(battle_music_dir):
+                    if file.lower().endswith(('.wav', '.mp3')):
+                        battle_files.append(os.path.join(battle_music_dir, file))
+            
+            print(f"Found {len(battle_files)} battle music files: {battle_files}")
+            
+            # Return a random file if any exist, otherwise fallback to the battle folder file
+            if battle_files:
+                selected = random.choice(battle_files)
+                print(f"Selected battle music: {selected}")
+                return selected
+            else:
+                print("No battle files found, using fallback")
+                return "assets/sounds/music/battle/battle.wav"  # Correct fallback path
+        except Exception as e:
+            print(f"Exception in _get_random_battle_music: {e}")
+            return "assets/sounds/music/battle/battle.wav"  # Correct fallback path on error
+    
     def start_battle_music(self):
-        """Start playing battle music."""
-        self.audio_manager.play_music("assets/sounds/music/battle.wav")
+        """Start playing battle music - randomly selected from battle music folder."""
+        battle_music_file = self._get_random_battle_music()
+        print(f"Starting battle music: {battle_music_file}")
+        self.audio_manager.play_music(battle_music_file)
     
     def get_main_menu_option_rect(self, option_index: int) -> pg.Rect:
-        """Get the rectangle for a main menu option."""
-        menu_start_y = 300
-        option_spacing = 80
-        y_pos = menu_start_y + option_index * option_spacing
-        return pg.Rect(self.screen_width // 2 - 200, y_pos - 30, 400, 60)
+        """Get the rectangle for a main menu option in HoloCure horizontal layout."""
+        # Match the layout from _render_clean_menu_options
+        button_width = 180  # Updated to match HoloCure design
+        button_height = 83  # Updated to match 1.5x taller buttons
+        button_spacing = 60  # Updated to match HoloCure design
+        total_width = len(self.main_menu_options) * button_width + (len(self.main_menu_options) - 1) * button_spacing
+        start_x = (self.screen_width - total_width) // 2
+        
+        # Calculate menu bar area (matching _render_clean_menu_options)
+        bar_height = 120
+        bar_y = self.screen_height - (self.screen_height // 4) - (bar_height // 2)
+        menu_y = bar_y + (bar_height - button_height) // 2  # Center buttons vertically in the bar
+        
+        x_pos = start_x + option_index * (button_width + button_spacing)
+        y_pos = menu_y
+        
+        return pg.Rect(x_pos, y_pos, button_width, button_height)
     
     def check_mouse_hover_main_menu(self, mouse_pos: tuple) -> int:
         """Check if mouse is hovering over a main menu option."""
@@ -399,6 +342,62 @@ class EnhancedMenuSystem:
                 return i
         return None
     
+    def check_mouse_hover_leaderboard(self, mouse_pos: tuple):
+        """Check if mouse is hovering over leaderboard entries and update selection."""
+        if not hasattr(self, 'character_manager'):
+            return None
+            
+        # Get character data sorted for leaderboard display (match the rendering logic exactly)
+        character_list = self.character_manager.get_character_list()
+        character_display_names = self.character_manager.get_character_display_names()
+        
+        if not character_list:
+            return None
+            
+        # Create list of (character, display_name, best_score) tuples for sorting
+        character_data = []
+        for char_name, display_name in zip(character_list, character_display_names):
+            best_score = self.score_manager.get_character_best_score(char_name)
+            character_data.append((char_name, display_name, best_score if best_score is not None else 0))
+        
+        # Sort by best score (descending), then by display name (ascending) for ties
+        character_data.sort(key=lambda x: (-x[2], x[1]))
+        
+        if not character_data:
+            return None
+        
+        # Initialize selection if needed
+        if not hasattr(self, 'leaderboard_selected'):
+            self.leaderboard_selected = 0
+        if not hasattr(self, 'leaderboard_scroll_offset'):
+            self.leaderboard_scroll_offset = 0
+            
+        # Character entry dimensions (match the rendering code exactly)
+        entry_height = 100
+        entry_width = min(900, self.screen_width - 100)  # Reasonable row width, not full screen
+        start_y = 200
+        start_x = (self.screen_width - entry_width) // 2  # Center the row on screen
+        
+        # Calculate visible entries
+        max_visible = max(1, (self.screen_height - start_y - 100) // entry_height)
+        total_characters = len(character_data)
+        
+        # Check each visible entry
+        for i in range(max_visible):
+            data_index = i + self.leaderboard_scroll_offset
+            if data_index >= total_characters:
+                break
+                
+            y_pos = start_y + i * entry_height
+            entry_rect = pg.Rect(start_x, y_pos, entry_width, entry_height - 10)
+            
+            if entry_rect.collidepoint(mouse_pos):
+                if self.leaderboard_selected != data_index:
+                    self.leaderboard_selected = data_index
+                return data_index
+                
+        return None
+
     def check_mouse_hover_settings_tabs(self, mouse_pos: tuple):
         """Check if mouse is hovering over settings tabs and update selection."""
         for i in range(len(self.settings_tabs)):
@@ -524,26 +523,60 @@ class EnhancedMenuSystem:
                 if clicked_option is not None:
                     # Simulate ENTER key press for the clicked option
                     self.main_menu_selection = clicked_option
-                    if self.main_menu_selection == 0:  # NEW GAME
-                        return "new_game"
-                    elif self.main_menu_selection == 1:  # LOAD GAME
-                        self.current_state = MenuState.SAVE_LOAD
-                        self.save_load_mode = "load"
-                        self.save_load_selection = 0
+                    if self.main_menu_selection == 0:  # LEADERBOARDS
+                        self.set_state(MenuState.LEADERBOARD)
                         return None
-                    elif self.main_menu_selection == 2:  # SETTINGS
+                    elif self.main_menu_selection == 1:  # ACHIEVEMENTS
+                        # TODO: Implement achievements
+                        print("Achievements not implemented yet")
+                        return None
+                    elif self.main_menu_selection == 2:  # SHOP
+                        # TODO: Implement shop
+                        print("Shop not implemented yet")
+                        return None
+                    elif self.main_menu_selection == 3:  # PLAY
+                        return "new_game"
+                    elif self.main_menu_selection == 4:  # THE OUTPOST
+                        # TODO: Implement The Outpost
+                        print("The Outpost not implemented yet")
+                        return None
+                    elif self.main_menu_selection == 5:  # SETTINGS
                         self.current_state = MenuState.SETTINGS
                         self.settings_tab = 0
                         self.settings_selection = 0
                         return None
+                    elif self.main_menu_selection == 6:  # QUIT
+                        return "quit"
         elif event.type == pg.KEYDOWN:
-            if event.key == pg.K_UP or event.key == pg.K_w:
+            if event.key == pg.K_LEFT or event.key == pg.K_a:
                 self.main_menu_selection = (self.main_menu_selection - 1) % len(self.main_menu_options)
-            elif event.key == pg.K_DOWN or event.key == pg.K_s:
+            elif event.key == pg.K_RIGHT or event.key == pg.K_d:
                 self.main_menu_selection = (self.main_menu_selection + 1) % len(self.main_menu_options)
             elif event.key == pg.K_RETURN or event.key == pg.K_SPACE:
-                if self.main_menu_selection == 0:  # NEW GAME
+                if self.main_menu_selection == 0:  # LEADERBOARDS
+                    self.set_state(MenuState.LEADERBOARD)
+                    return None
+                elif self.main_menu_selection == 1:  # ACHIEVEMENTS
+                    # TODO: Implement achievements
+                    print("Achievements not implemented yet")
+                    return None
+                elif self.main_menu_selection == 2:  # SHOP
+                    # TODO: Implement shop
+                    print("Shop not implemented yet")
+                    return None
+                elif self.main_menu_selection == 3:  # PLAY
                     return "new_game"
+                elif self.main_menu_selection == 4:  # THE OUTPOST
+                    # TODO: Implement The Outpost
+                    print("The Outpost not implemented yet")
+                    return None
+                elif self.main_menu_selection == 5:  # SETTINGS
+                    self.current_state = MenuState.SETTINGS
+                    self.settings_tab = 0
+                    self.settings_selection = 0
+                    return None
+                elif self.main_menu_selection == 6:  # QUIT
+                    return "quit"
                 elif self.main_menu_selection == 1:  # LOAD GAME
                     self.current_state = MenuState.SAVE_LOAD
                     self.save_load_mode = "load"
@@ -554,7 +587,11 @@ class EnhancedMenuSystem:
                     self.settings_tab = 0
                     self.settings_selection = 0
             elif event.key == pg.K_ESCAPE:
-                return "quit"
+                # If we came from a paused game, return to game instead of quitting
+                if self.came_from_paused_game:
+                    return "resume_game"
+                else:
+                    return "quit"
         return None
     
     def handle_settings_input(self, event) -> Optional[str]:
@@ -898,101 +935,591 @@ class EnhancedMenuSystem:
         self._render_version_info(screen)
     
     def _draw_clean_background(self, screen: pg.Surface):
-        """Draw a clean background with random image."""
-        # Use random background if available
-        if hasattr(self, 'main_menu_bg') and self.main_menu_bg:
-            screen.blit(self.main_menu_bg, (0, 0))
-            # Add semi-transparent overlay for better text readability
-            overlay = pg.Surface((self.screen_width, self.screen_height))
-            overlay.set_alpha(180)
-            overlay.fill((0, 0, 0))
-            screen.blit(overlay, (0, 0))
-        else:
-            # Fallback: Dark gradient from top to bottom
-            for y in range(self.screen_height):
-                progress = y / self.screen_height
-                # Smooth gradient from dark gray to darker gray
-                color_value = int(25 + progress * 5)  # 25 to 30
-                color = (color_value, color_value, color_value + 2)
-                pg.draw.line(screen, color, (0, y), (self.screen_width, y))
+        """Draw a clean background with venetian blinds carousel effect."""
+        # Draw venetian blinds carousel with all background images
+        self._draw_venetian_blinds_carousel(screen)
         
-        # Subtle grid pattern for texture (reduce opacity over background)
+        # Add semi-transparent overlay for better text readability
+        overlay = pg.Surface((self.screen_width, self.screen_height))
+        overlay.set_alpha(120)
+        overlay.fill((0, 0, 0))
+        screen.blit(overlay, (0, 0))
+        
+        # Animated infinite vertical scrolling grid with holographic effects
+        self._draw_animated_grid(screen)
+    
+    def _draw_animated_grid(self, screen: pg.Surface):
+        """Draw an infinitely scrolling vertical grid."""
         grid_size = 40
-        grid_color = (35, 35, 40) if not hasattr(self, 'main_menu_bg') else (50, 50, 50)
+        grid_color = (50, 50, 50)
+        
+        # Infinite vertical scrolling - grid moves down continuously
+        scroll_speed = 20  # pixels per second
+        vertical_offset = int(self.animation_time * scroll_speed) % grid_size
+        
+        # Draw vertical lines (static)
         for x in range(0, self.screen_width, grid_size):
             pg.draw.line(screen, grid_color, (x, 0), (x, self.screen_height), 1)
-        for y in range(0, self.screen_height, grid_size):
+        
+        # Draw horizontal lines with infinite scrolling
+        for y in range(-grid_size + vertical_offset, self.screen_height + grid_size, grid_size):
             pg.draw.line(screen, grid_color, (0, y), (self.screen_width, y), 1)
     
+    def _draw_venetian_blinds_carousel(self, screen: pg.Surface):
+        """Draw vertical slightly angled venetian blinds with rotating background images."""
+        # Get all available background images
+        bg_images = self._get_all_background_images()
+        if not bg_images:
+            # Fallback gradient if no images
+            for y in range(self.screen_height):
+                progress = y / self.screen_height
+                color_value = int(25 + progress * 5)
+                color = (color_value, color_value, color_value + 2)
+                pg.draw.line(screen, color, (0, y), (self.screen_width, y))
+            return
+        
+        # Animation parameters - optimized
+        current_time = pg.time.get_ticks() / 1000.0
+        blind_width = 540  # 1.35x wider (was 400, now 400 * 1.35 = 540)
+        blind_angle = 15  # Slight angle in degrees
+        carousel_speed = 100  # Pixels per second movement
+        
+        # Calculate total width needed for seamless looping
+        total_carousel_width = blind_width * len(bg_images)
+        
+        # Calculate animation offset for seamless looping
+        animation_offset = (current_time * carousel_speed) % total_carousel_width
+        
+        # Pre-calculate angle values for performance
+        import math
+        angle_rad = math.radians(blind_angle)
+        angle_offset = int(self.screen_height * math.tan(angle_rad))
+        
+        # Calculate how many blinds we need to cover the screen completely
+        # For angled blinds, we need extra blinds to account for the angle extension
+        # The rightmost blind's bottom-right corner extends by angle_offset
+        extra_width_needed = abs(angle_offset) + blind_width  # Extra coverage for angle + one more blind
+        blinds_needed = int(math.ceil((self.screen_width + extra_width_needed) / blind_width)) + 3
+        
+        # Start drawing from further off-screen to ensure full coverage of angled blinds
+        start_blind_index = int(animation_offset / blind_width) - 1  # Start one blind earlier
+        
+        for i in range(blinds_needed):
+            # Calculate blind position - ensure continuous coverage
+            blind_x = (start_blind_index + i) * blind_width - animation_offset
+            
+            # Determine which background image to use for this blind (stable cycling)
+            # Use the blind's absolute position in the sequence, not floating point calculations
+            absolute_blind_index = (start_blind_index + i) % len(bg_images)
+            bg_image = bg_images[absolute_blind_index]
+            
+            # Create angled blind slat with proper cropping
+            self._draw_angled_blind_slat_optimized(screen, bg_image, blind_x, blind_width, 
+                                                 angle_offset, angle_rad)
+    
+    def _draw_angled_blind_slat_optimized(self, screen: pg.Surface, bg_image: pg.Surface, 
+                                        start_x: int, width: int, angle_offset: int, angle_rad: float):
+        """Optimized drawing of a single angled venetian blind slat with proper cropping."""
+        import math
+        
+        # Create the angled blind polygon points
+        points = [
+            (start_x, 0),                                    # Top-left
+            (start_x + width, 0),                           # Top-right  
+            (start_x + width + angle_offset, self.screen_height),  # Bottom-right
+            (start_x + angle_offset, self.screen_height)    # Bottom-left
+        ]
+        
+        # DISABLE CULLING - render all blinds to prevent premature disappearing
+        # The performance impact is minimal since we only have a few blinds at once
+        # This ensures perfect visual continuity at the cost of slightly more rendering
+        
+        # Calculate bounding rectangle
+        min_x = max(0, min(p[0] for p in points))
+        max_x = min(self.screen_width, max(p[0] for p in points))
+        
+        if max_x <= min_x:
+            return
+        
+        # Use a more efficient mask approach with BLEND_RGBA_MULT
+        blind_width_actual = max_x - min_x
+        
+        # Create the background portion for this blind
+        bg_portion = pg.Surface((blind_width_actual, self.screen_height))
+        bg_x_offset = start_x - min_x
+        bg_portion.blit(bg_image, (bg_x_offset, 0))
+        
+        # Create mask with the angled shape
+        mask = pg.Surface((blind_width_actual, self.screen_height), pg.SRCALPHA)
+        mask.fill((0, 0, 0, 0))  # Transparent
+        
+        # Adjust points for the mask surface
+        adjusted_points = [(p[0] - min_x, p[1]) for p in points]
+        pg.draw.polygon(mask, (255, 255, 255, 255), adjusted_points)
+        
+        # Create final surface
+        final_blind = pg.Surface((blind_width_actual, self.screen_height), pg.SRCALPHA)
+        final_blind.blit(bg_portion, (0, 0))
+        final_blind.blit(mask, (0, 0), special_flags=pg.BLEND_RGBA_MIN)
+        
+        # Draw to screen
+        screen.blit(final_blind, (min_x, 0))
+        
+        # Draw thicker edge highlights with better visibility conditions
+        line_thickness = 3  # Make lines thicker (was 1)
+        highlight_color = (255, 255, 255, 60)  # Slightly more visible
+        
+        # Left edge line - draw if any part of the left edge is potentially visible
+        left_edge_visible = (points[0][0] >= -line_thickness and points[3][0] >= -line_thickness) or \
+                           (points[0][0] <= self.screen_width + line_thickness and points[3][0] <= self.screen_width + line_thickness)
+        if left_edge_visible:
+            pg.draw.line(screen, highlight_color, points[0], points[3], line_thickness)
+            
+        # Right edge line - draw if any part of the right edge is potentially visible  
+        right_edge_visible = (points[1][0] >= -line_thickness and points[2][0] >= -line_thickness) or \
+                             (points[1][0] <= self.screen_width + line_thickness and points[2][0] <= self.screen_width + line_thickness)
+        if right_edge_visible:
+            pg.draw.line(screen, highlight_color, points[1], points[2], line_thickness)
+    
+    def _get_all_background_images(self):
+        """Get all available background images from the menu backgrounds folder (cached)."""
+        # Cache images for performance
+        if hasattr(self, '_cached_bg_images') and self._cached_bg_images:
+            return self._cached_bg_images
+        
+        import os
+        bg_images = []
+        
+        # Check for background images in assets/images/Menu/BKG/
+        bkg_path = "assets/images/Menu/BKG"
+        if os.path.exists(bkg_path):
+            # Sort filenames to ensure consistent order - this prevents random changes
+            filenames = sorted([f for f in os.listdir(bkg_path) 
+                               if f.lower().endswith(('.png', '.jpg', '.jpeg'))])
+            
+            for filename in filenames:
+                try:
+                    img_path = os.path.join(bkg_path, filename)
+                    img = pg.image.load(img_path).convert()
+                    # Scale to screen size
+                    img = pg.transform.scale(img, (self.screen_width, self.screen_height))
+                    bg_images.append(img)
+                    print(f"Loaded background image: {filename}")
+                except Exception as e:
+                    print(f"Failed to load background image {filename}: {e}")
+        
+        # Cache the loaded images
+        self._cached_bg_images = bg_images
+        print(f"Cached {len(bg_images)} background images for venetian blinds carousel")
+        return bg_images
+    
     def _render_main_logo_clean(self, screen: pg.Surface):
-        """Render the main logo with clean styling."""
-        # Clean title text without glow effects
-        title_text = "S.A.C.K. BATTLE"
+        """Render the main logo with pixel art military sci-fi styling."""
+        title_text = "KINGDOM CLEANUP"
         subtitle_text = "A NIKKE FAN GAME"
         
-        # Main title
-        title_surface = self.title_font.render(title_text, True, (255, 255, 255))
-        title_rect = title_surface.get_rect(center=(self.screen_width // 2, 150))
+        # Pixel art title positioning - more space from top for dramatic effect
+        title_y = 120
+        subtitle_y = 200  # Increased spacing from 190 to 200 (50px gap instead of 50px)
         
-        # Subtle shadow for depth
-        shadow_surface = self.title_font.render(title_text, True, (100, 100, 100))
-        shadow_rect = shadow_surface.get_rect(center=(self.screen_width // 2 + 3, 153))
-        screen.blit(shadow_surface, shadow_rect)
+        # === PIXEL ART TITLE ===
+        # Create pixel-perfect title with blocky, crisp edges
+        title_surface = self.pixel_title_font.render(title_text, False, (255, 255, 255))  # False = no antialiasing for pixel art
+        title_rect = title_surface.get_rect(center=(self.screen_width // 2, title_y))
+        
+        # Pixel art shadow layers - blocky and stepped
+        pixel_shadow_colors = [(30, 30, 40), (50, 50, 60), (70, 70, 80)]
+        pixel_shadow_offsets = [(6, 6), (4, 4), (2, 2)]
+        
+        for shadow_color, offset in zip(pixel_shadow_colors, pixel_shadow_offsets):
+            shadow_surface = self.pixel_title_font.render(title_text, False, shadow_color)
+            shadow_rect = shadow_surface.get_rect(center=(self.screen_width // 2 + offset[0], title_y + offset[1]))
+            screen.blit(shadow_surface, shadow_rect)
+        
+        # Pixel art glow effect - create blocky highlight
+        glow_surface = self.pixel_title_font.render(title_text, False, (240, 240, 240))
+        glow_rect = glow_surface.get_rect(center=(self.screen_width // 2 - 1, title_y - 1))
+        screen.blit(glow_surface, glow_rect)
+        
+        # Main title - crisp and pixel perfect
         screen.blit(title_surface, title_rect)
         
-        # Subtitle
-        subtitle_surface = self.subtitle_font.render(subtitle_text, True, (200, 200, 200))
-        subtitle_rect = subtitle_surface.get_rect(center=(self.screen_width // 2, 200))
+        # Pixel art border around title - chunky and blocky
+        border_thickness = 3
+        border_padding = 15
+        title_border_rect = pg.Rect(
+            title_rect.left - border_padding, 
+            title_rect.top - border_padding,
+            title_rect.width + border_padding * 2,
+            title_rect.height + border_padding * 2
+        )
+        
+        # Draw multiple pixel art border layers
+        pg.draw.rect(screen, (100, 100, 120), title_border_rect, border_thickness)
+        pg.draw.rect(screen, (150, 150, 170), title_border_rect.inflate(-6, -6), 1)
+        
+        # === PIXEL ART SUBTITLE ===
+        subtitle_surface = self.pixel_subtitle_font.render(subtitle_text, False, (180, 180, 200))
+        subtitle_rect = subtitle_surface.get_rect(center=(self.screen_width // 2, subtitle_y))
+        
+        # Subtitle shadow - single layer for cleaner look
+        subtitle_shadow = self.pixel_subtitle_font.render(subtitle_text, False, (40, 40, 50))
+        subtitle_shadow_rect = subtitle_surface.get_rect(center=(self.screen_width // 2 + 2, subtitle_y + 2))
+        screen.blit(subtitle_shadow, subtitle_shadow_rect)
+        
         screen.blit(subtitle_surface, subtitle_rect)
         
-        # Clean decorative line
-        line_width = 300
-        line_y = 230
+        # === PIXEL ART DECORATIVE ELEMENTS ===
+        # Chunky pixel art line design
+        line_y = subtitle_y + 40
+        line_width = 500
         line_start_x = self.screen_width // 2 - line_width // 2
         line_end_x = self.screen_width // 2 + line_width // 2
-        pg.draw.line(screen, (180, 180, 180), (line_start_x, line_y), (line_end_x, line_y), 2)
+        
+        # Main decorative line - thick and pixel perfect
+        pg.draw.line(screen, (120, 120, 140), (line_start_x, line_y), (line_end_x, line_y), 4)
+        pg.draw.line(screen, (160, 160, 180), (line_start_x, line_y - 1), (line_end_x, line_y - 1), 2)
+        
+        # Pixel art corner elements - blocky squares instead of chevrons
+        corner_size = 12
+        corner_color = (200, 200, 220)
+        
+        # Left corner block
+        left_corner_rect = pg.Rect(line_start_x - 25, line_y - corner_size//2, corner_size, corner_size)
+        pg.draw.rect(screen, corner_color, left_corner_rect)
+        pg.draw.rect(screen, (100, 100, 120), left_corner_rect, 2)
+        
+        # Right corner block  
+        right_corner_rect = pg.Rect(line_end_x + 13, line_y - corner_size//2, corner_size, corner_size)
+        pg.draw.rect(screen, corner_color, right_corner_rect)
+        pg.draw.rect(screen, (100, 100, 120), right_corner_rect, 2)
+        
+        # Additional pixel art details - small accent squares
+        accent_size = 6
+        accent_color = (255, 255, 255)
+        
+        # Left accent squares
+        for i in range(3):
+            x_pos = line_start_x - 60 - i * 15
+            accent_rect = pg.Rect(x_pos, line_y - accent_size//2, accent_size, accent_size)
+            pg.draw.rect(screen, accent_color, accent_rect)
+        
+        # Right accent squares
+        for i in range(3):
+            x_pos = line_end_x + 50 + i * 15  
+            accent_rect = pg.Rect(x_pos, line_y - accent_size//2, accent_size, accent_size)
+            pg.draw.rect(screen, accent_color, accent_rect)
     
     def _render_clean_menu_options(self, screen: pg.Surface):
-        """Render menu options with clean anime styling."""
-        menu_start_y = 300
-        option_spacing = 80
+        """Render menu options in HoloCure horizontal layout style."""
+        # Button configuration - matching old HoloCure design with taller buttons
+        button_width = 180  # Larger buttons as in old design (was 140)
+        button_height = 83  # 1.5x taller than original 55px (55 * 1.5 = 82.5, rounded to 83)
+        button_spacing = 60  # Increased spacing as in old design (was 30)
+        total_width = len(self.main_menu_options) * button_width + (len(self.main_menu_options) - 1) * button_spacing
+        start_x = (self.screen_width - total_width) // 2
+        
+        # Calculate menu bar area - matching old design (1/4 from bottom instead of 1/3)
+        bar_height = 120
+        bar_y = self.screen_height - (self.screen_height // 4) - (bar_height // 2)
+        menu_y = bar_y + (bar_height - button_height) // 2  # Center buttons vertically in the bar
+        
+        # Draw bottom menu bar background (matching old style)
+        bar_surface = pg.Surface((self.screen_width, bar_height))
+        bar_surface.set_alpha(200)
+        bar_surface.fill((20, 20, 30))  # Dark semi-transparent background
+        screen.blit(bar_surface, (0, bar_y))
+        
+        # Draw bar borders - top and bottom
+        pg.draw.line(screen, (100, 100, 120), (0, bar_y), (self.screen_width, bar_y), 2)
+        pg.draw.line(screen, (100, 100, 120), (0, bar_y + bar_height), (self.screen_width, bar_y + bar_height), 2)
         
         for i, option in enumerate(self.main_menu_options):
-            y_pos = menu_start_y + i * option_spacing
+            # Calculate button position
+            x_pos = start_x + i * (button_width + button_spacing)
+            y_pos = menu_y  # Use menu_y directly instead of menu_center_y calculation
             is_selected = (i == self.main_menu_selection)
+            is_play_button = (option == "PLAY")
             
-            # Clean selection indicator
+            # Button rectangle
+            button_rect = pg.Rect(x_pos, y_pos, button_width, button_height)
+            
+            # HoloCure-style button styling
             if is_selected:
-                # Simple highlight bar
-                highlight_rect = pg.Rect(self.screen_width // 2 - 200, y_pos - 30, 400, 60)
-                pg.draw.rect(screen, (50, 50, 55), highlight_rect, border_radius=8)
-                pg.draw.rect(screen, (180, 180, 180), highlight_rect, 2, border_radius=8)
+                # Selected button - bright white glow effect
+                glow_size = 8
+                glow_rect = pg.Rect(x_pos - glow_size, y_pos - glow_size, 
+                                   button_width + glow_size * 2, button_height + glow_size * 2)
+                glow_surface = pg.Surface((glow_rect.width, glow_rect.height))
+                glow_surface.set_alpha(80)
+                glow_surface.fill((255, 255, 255))  # Bright white glow
+                screen.blit(glow_surface, glow_rect.topleft)
+                
+                # Additional outer glow
+                outer_glow_size = 12
+                outer_glow_rect = pg.Rect(x_pos - outer_glow_size, y_pos - outer_glow_size, 
+                                         button_width + outer_glow_size * 2, button_height + outer_glow_size * 2)
+                outer_glow_surface = pg.Surface((outer_glow_rect.width, outer_glow_rect.height))
+                outer_glow_surface.set_alpha(40)
+                outer_glow_surface.fill((255, 255, 255))  # Softer outer glow
+                screen.blit(outer_glow_surface, outer_glow_rect.topleft)
+                
+                # Button background
+                bg_surface = pg.Surface((button_width, button_height))
+                bg_surface.set_alpha(255)
+                bg_surface.fill((150, 150, 170))  # Brighter background
+                screen.blit(bg_surface, (x_pos, y_pos))
+                
+                # Button border
+                pg.draw.rect(screen, (255, 255, 255), button_rect, 4)  # Bright white border
+                button_color = (255, 255, 255)
+                text_color = (255, 255, 255)
+            elif is_play_button:
+                # Play button - special white background with gray text
+                bg_surface = pg.Surface((button_width, button_height))
+                bg_surface.set_alpha(255)
+                bg_surface.fill((240, 240, 240))  # White background
+                screen.blit(bg_surface, (x_pos, y_pos))
+                
+                # Button border
+                pg.draw.rect(screen, (200, 200, 200), button_rect, 3)  # Light gray border
+                button_color = (100, 100, 100)  # Gray for icon
+                text_color = (100, 100, 100)   # Gray text
+            else:
+                # Normal button
+                bg_surface = pg.Surface((button_width, button_height))
+                bg_surface.set_alpha(150)
+                bg_surface.fill((40, 40, 50))  # Dark background
+                screen.blit(bg_surface, (x_pos, y_pos))
+                
+                # Button border
+                pg.draw.rect(screen, (120, 120, 120), button_rect, 2)  # Gray border
+                button_color = (180, 180, 180)
+                text_color = (180, 180, 180)
             
-            # Option text
-            text_color = (255, 255, 255) if is_selected else (180, 180, 180)
-            option_surface = self.menu_font.render(option, True, text_color)
-            option_rect = option_surface.get_rect(center=(self.screen_width // 2, y_pos))
+            # Draw icon - positioned in upper portion of taller button
+            icon_size = int(button_height * 0.4)  # Slightly smaller icon relative to button height
+            icon_center_x = x_pos + button_width // 2
+            icon_center_y = y_pos + int(button_height * 0.3)  # Position in upper third of button
+            self._draw_menu_icon(screen, option, icon_center_x, icon_center_y, button_color)
             
-            # Clean text shadow for selected items
-            if is_selected:
-                shadow_surface = self.menu_font.render(option, True, (80, 80, 80))
-                shadow_rect = shadow_surface.get_rect(center=(self.screen_width // 2 + 2, y_pos + 2))
-                screen.blit(shadow_surface, shadow_rect)
-            
-            screen.blit(option_surface, option_rect)
+            # Draw small text label below icon with more separation
+            label_font = pg.font.Font(None, 18 if is_selected else 16)
+            text_surface = label_font.render(option, True, text_color)
+            text_y = y_pos + int(button_height * 0.7)  # Position in lower third of button
+            text_rect = text_surface.get_rect(center=(icon_center_x, text_y))
+            screen.blit(text_surface, text_rect)
+    
+    def _draw_menu_icon(self, screen: pg.Surface, option: str, center_x: int, center_y: int, color: tuple):
+        """Draw HoloCure-style detailed icons for menu options."""
+        cx, cy = center_x, center_y
         
-        # Navigation instructions
-        nav_text = "Use ARROW KEYS or MOUSE to navigate • ENTER or CLICK to select"
-        nav_surface = self.small_font.render(nav_text, True, (140, 140, 140))
-        nav_rect = nav_surface.get_rect(center=(self.screen_width // 2, self.screen_height - 50))
-        screen.blit(nav_surface, nav_rect)
+        if option == "LEADERBOARDS":
+            # Crown icon for leaderboards
+            self._draw_crown_icon(screen, cx, cy, 32, color)
+        elif option == "ACHIEVEMENTS":
+            # Trophy icon for achievements
+            self._draw_trophy_icon(screen, cx, cy, 32, color)
+        elif option == "SHOP":
+            # Shopping bag icon
+            self._draw_shopping_bag_icon(screen, cx, cy, 32, color)
+        elif option == "PLAY":
+            # Play button (triangle with circle)
+            self._draw_play_icon(screen, cx, cy, 32, color)
+        elif option == "THE OUTPOST":
+            # House icon for outpost
+            self._draw_house_icon(screen, cx, cy, 32, color)
+        elif option == "SETTINGS":
+            # Settings cog icon
+            self._draw_cog_icon(screen, cx, cy, 32, color)
+        elif option == "QUIT":
+            # X icon with circle
+            quit_color = (255, 100, 100) if color == (255, 255, 255) else (200, 80, 80)
+            self._draw_quit_icon(screen, cx, cy, 32, quit_color)
+    
+    def _draw_crown_icon(self, screen: pg.Surface, cx: int, cy: int, size: int, color: tuple):
+        """Draw a crown icon for leaderboards."""
+        # Crown base
+        base_width = int(size * 0.8)
+        base_height = int(size * 0.3)
+        base_rect = pg.Rect(cx - base_width//2, cy + size//4, base_width, base_height)
+        pg.draw.rect(screen, color, base_rect)
+        
+        # Crown points (triangular peaks)
+        peak_height = int(size * 0.4)
+        for i in range(3):
+            x_offset = (i - 1) * base_width // 3
+            peak_x = cx + x_offset
+            peak_y = cy - peak_height//2
+            
+            # Draw triangular peak
+            points = [
+                (peak_x, peak_y),
+                (peak_x - size//8, peak_y + peak_height),
+                (peak_x + size//8, peak_y + peak_height)
+            ]
+            pg.draw.polygon(screen, color, points)
+        
+        # Crown jewels (small circles)
+        for i in range(3):
+            jewel_x = cx + (i - 1) * base_width // 4
+            jewel_y = cy - size//8
+            pg.draw.circle(screen, (255, 255, 100), (jewel_x, jewel_y), size//12)
+    
+    def _draw_trophy_icon(self, screen: pg.Surface, cx: int, cy: int, size: int, color: tuple):
+        """Draw a trophy icon for achievements."""
+        # Trophy cup (main body)
+        cup_width = int(size * 0.5)
+        cup_height = int(size * 0.4)
+        cup_rect = pg.Rect(cx - cup_width//2, cy - size//4, cup_width, cup_height)
+        pg.draw.ellipse(screen, color, cup_rect, 3)
+        
+        # Trophy handles
+        handle_size = size // 8
+        # Left handle
+        left_handle = pg.Rect(cx - cup_width//2 - handle_size, cy - size//8, handle_size*2, handle_size)
+        pg.draw.ellipse(screen, color, left_handle, 2)
+        # Right handle  
+        right_handle = pg.Rect(cx + cup_width//2 - handle_size, cy - size//8, handle_size*2, handle_size)
+        pg.draw.ellipse(screen, color, right_handle, 2)
+        
+        # Trophy stem
+        stem_width = size // 10
+        stem_height = int(size * 0.3)
+        stem_rect = pg.Rect(cx - stem_width//2, cy + cup_height//4, stem_width, stem_height)
+        pg.draw.rect(screen, color, stem_rect)
+        
+        # Trophy base
+        base_width = int(size * 0.4)
+        base_height = size // 8
+        base_rect = pg.Rect(cx - base_width//2, cy + size//3, base_width, base_height)
+        pg.draw.rect(screen, color, base_rect)
+    
+    def _draw_shopping_bag_icon(self, screen: pg.Surface, cx: int, cy: int, size: int, color: tuple):
+        """Draw a shopping bag icon for shop."""
+        # Bag body
+        bag_width = int(size * 0.6)
+        bag_height = int(size * 0.7)
+        bag_rect = pg.Rect(cx - bag_width//2, cy - bag_height//4, bag_width, bag_height)
+        pg.draw.rect(screen, color, bag_rect, 3)
+        
+        # Bag handles
+        handle_width = int(size * 0.3)
+        handle_height = int(size * 0.25)
+        # Left handle
+        left_handle = pg.Rect(cx - bag_width//3, cy - bag_height//2, handle_width, handle_height)
+        pg.draw.ellipse(screen, color, left_handle, 2)
+        # Right handle
+        right_handle = pg.Rect(cx - handle_width//3, cy - bag_height//2, handle_width, handle_height)
+        pg.draw.ellipse(screen, color, right_handle, 2)
+        
+        # Bag fold line
+        fold_y = cy - bag_height//6
+        pg.draw.line(screen, color, (cx - bag_width//2, fold_y), (cx + bag_width//2, fold_y), 2)
+    
+    def _draw_play_icon(self, screen: pg.Surface, cx: int, cy: int, size: int, color: tuple):
+        """Draw a play button (triangle) icon."""
+        # Play triangle pointing right
+        triangle_size = int(size * 0.6)
+        points = [
+            (cx - triangle_size//3, cy - triangle_size//2),
+            (cx - triangle_size//3, cy + triangle_size//2),
+            (cx + triangle_size//2, cy)
+        ]
+        pg.draw.polygon(screen, color, points)
+        
+        # Circle border around triangle
+        pg.draw.circle(screen, color, (cx, cy), int(size * 0.45), 3)
+    
+    def _draw_house_icon(self, screen: pg.Surface, cx: int, cy: int, size: int, color: tuple):
+        """Draw a house icon for outpost."""
+        # House base (square)
+        base_size = int(size * 0.5)
+        base_rect = pg.Rect(cx - base_size//2, cy, base_size, base_size//2)
+        pg.draw.rect(screen, color, base_rect, 2)
+        
+        # House roof (triangle)
+        roof_points = [
+            (cx - base_size//2, cy),
+            (cx + base_size//2, cy),
+            (cx, cy - base_size//3)
+        ]
+        pg.draw.polygon(screen, color, roof_points, 2)
+        
+        # Door
+        door_width = base_size // 4
+        door_height = base_size // 3
+        door_rect = pg.Rect(cx - door_width//2, cy + base_size//6, door_width, door_height)
+        pg.draw.rect(screen, color, door_rect, 2)
+        
+        # Window
+        window_size = base_size // 6
+        window_rect = pg.Rect(cx + base_size//6, cy - base_size//8, window_size, window_size)
+        pg.draw.rect(screen, color, window_rect, 1)
+    
+    def _draw_cog_icon(self, screen: pg.Surface, cx: int, cy: int, size: int, color: tuple):
+        """Draw a settings cog/gear icon."""
+        import math
+        
+        # Inner circle
+        inner_radius = int(size * 0.15)
+        pg.draw.circle(screen, color, (cx, cy), inner_radius, 2)
+        
+        # Outer ring with teeth
+        outer_radius = int(size * 0.35)
+        num_teeth = 8
+        
+        for i in range(num_teeth):
+            angle = i * (360 / num_teeth) * math.pi / 180
+            # Outer tooth point
+            outer_x = cx + int(outer_radius * math.cos(angle))
+            outer_y = cy + int(outer_radius * math.sin(angle))
+            # Inner connection point
+            inner_x = cx + int(inner_radius * 1.5 * math.cos(angle))
+            inner_y = cy + int(inner_radius * 1.5 * math.sin(angle))
+            
+            pg.draw.line(screen, color, (inner_x, inner_y), (outer_x, outer_y), 3)
+        
+        # Draw circle outline
+        pg.draw.circle(screen, color, (cx, cy), outer_radius, 2)
+    
+    def _draw_quit_icon(self, screen: pg.Surface, cx: int, cy: int, size: int, color: tuple):
+        """Draw a red X icon for quit."""
+        # X lines
+        line_length = int(size * 0.5)
+        thickness = max(3, size // 10)
+        
+        # Top-left to bottom-right
+        start1 = (cx - line_length//2, cy - line_length//2)
+        end1 = (cx + line_length//2, cy + line_length//2)
+        pg.draw.line(screen, color, start1, end1, thickness)
+        
+        # Top-right to bottom-left  
+        start2 = (cx + line_length//2, cy - line_length//2)
+        end2 = (cx - line_length//2, cy + line_length//2)
+        pg.draw.line(screen, color, start2, end2, thickness)
+        
+        # Circle border
+        pg.draw.circle(screen, color, (cx, cy), int(size * 0.4), 2)
     
     def _render_version_info(self, screen: pg.Surface):
-        """Render version info in corner."""
+        """Render version info and GitHub link."""
+        # Version in corner (keep existing)
         version_text = "v1.0.0"
         version_surface = pg.font.Font(None, 24).render(version_text, True, (120, 120, 120))
         version_rect = version_surface.get_rect(bottomright=(self.screen_width - 20, self.screen_height - 20))
         screen.blit(version_surface, version_rect)
+        
+        # GitHub link at bottom of screen with minimal padding
+        github_text = "github.com/exporterrormusic/kingdom-pygame"
+        github_font = pg.font.Font(None, 28)
+        github_surface = github_font.render(github_text, True, (140, 140, 140))
+        
+        # Position at bottom of screen with minimal padding (10 pixels from bottom)
+        github_y = self.screen_height - 10
+        
+        github_rect = github_surface.get_rect(center=(self.screen_width // 2, github_y))
+        screen.blit(github_surface, github_rect)
     
     def render_settings(self, screen: pg.Surface):
         """Render the settings menu with clean main menu style."""
@@ -1376,6 +1903,8 @@ class EnhancedMenuSystem:
             self.render_settings(screen)
         elif self.current_state == MenuState.SAVE_LOAD:
             self.render_save_load(screen)
+        elif self.current_state == MenuState.LEADERBOARD:
+            self.render_leaderboard(screen)
     
     def handle_input(self, event) -> Optional[str]:
         """Handle input for current menu state."""
@@ -1387,6 +1916,8 @@ class EnhancedMenuSystem:
             return self.handle_settings_input(event)
         elif self.current_state == MenuState.SAVE_LOAD:
             return self.handle_save_load_input(event)
+        elif self.current_state == MenuState.LEADERBOARD:
+            return self.handle_leaderboard_input(event)
         return None
     
     def set_state(self, state: MenuState, preserve_music: bool = False):
@@ -1397,9 +1928,465 @@ class EnhancedMenuSystem:
         if not preserve_music:
             if state == MenuState.WELCOME:
                 self.start_welcome_music()
-            elif state in [MenuState.MAIN, MenuState.SETTINGS]:
+            elif state in [MenuState.MAIN, MenuState.SETTINGS, MenuState.LEADERBOARD]:
                 self.start_main_menu_music()
+    
+    def set_came_from_paused_game(self, came_from_paused: bool):
+        """Set whether the menu was opened from a paused game."""
+        self.came_from_paused_game = came_from_paused
     
     def get_state(self) -> MenuState:
         """Get current menu state."""
         return self.current_state
+    
+    # Music control methods
+    def start_welcome_music(self):
+        """Start welcome screen music."""
+        self.audio_manager.play_music("assets/sounds/music/welcome.mp3")
+    
+    def start_main_menu_music(self):
+        """Start main menu music."""
+        self.audio_manager.play_music("assets/sounds/music/main-menu.mp3")
+    
+    def start_character_select_music(self):
+        """Start character selection music."""
+        self.audio_manager.play_music("assets/sounds/music/character-select.mp3")
+    
+    def start_battle_music(self):
+        """Start battle music - randomly selected from battle music folder."""
+        battle_music_file = self._get_random_battle_music()
+        print(f"Starting battle music (method 2): {battle_music_file}")
+        self.audio_manager.play_music(battle_music_file)
+    
+    def update_screen_dimensions(self, new_width: int, new_height: int):
+        """Update screen dimensions and rescale background."""
+        self.screen_width = new_width
+        self.screen_height = new_height
+        
+        # Reload and rescale the main menu background for new dimensions
+        self.load_random_main_menu_background()
+    
+    def render_leaderboard(self, screen):
+        """Render the leaderboard screen with clean anime aesthetic."""
+        # Clean background matching main menu style
+        self._draw_clean_background(screen)
+        
+        # Title
+        self._render_leaderboard_title(screen)
+        
+        # Character leaderboard list
+        self._render_character_leaderboard(screen)
+        
+        # Navigation instructions
+        self._render_leaderboard_instructions(screen)
+    
+    def _render_leaderboard_title(self, screen):
+        """Render the leaderboard title."""
+        title_text = self.large_font.render("LEADERBOARD", True, self.primary_color)
+        title_rect = title_text.get_rect(center=(self.screen_width // 2, 120))
+        
+        # Add subtle glow effect
+        glow_surface = pg.Surface((title_rect.width + 20, title_rect.height + 20))
+        glow_surface.set_alpha(80)
+        glow_surface.fill(self.primary_color)
+        glow_rect = glow_surface.get_rect(center=title_rect.center)
+        screen.blit(glow_surface, glow_rect)
+        screen.blit(title_text, title_rect)
+    
+    def _render_character_leaderboard(self, screen):
+        """Render the character leaderboard entries."""
+        if not hasattr(self, 'character_manager') or not hasattr(self, 'score_manager'):
+            # Fallback if dependencies aren't available
+            no_data_text = self.menu_font.render("Character data not available", True, (255, 100, 100))
+            text_rect = no_data_text.get_rect(center=(self.screen_width // 2, self.screen_height // 2))
+            screen.blit(no_data_text, text_rect)
+            return
+        
+        character_list = self.character_manager.get_character_list()
+        character_display_names = self.character_manager.get_character_display_names()
+        
+        if not character_list:
+            no_chars_text = self.menu_font.render("No characters available", True, (255, 100, 100))
+            text_rect = no_chars_text.get_rect(center=(self.screen_width // 2, self.screen_height // 2))
+            screen.blit(no_chars_text, text_rect)
+            return
+        
+        # Create list of (character, display_name, best_score) tuples for sorting
+        character_data = []
+        for char_name, display_name in zip(character_list, character_display_names):
+            best_score = self.score_manager.get_character_best_score(char_name)
+            character_data.append((char_name, display_name, best_score if best_score is not None else 0))
+        
+        # Sort by best score (descending), then by display name (ascending) for ties
+        character_data.sort(key=lambda x: (-x[2], x[1]))
+        
+        # Get currently selected index and scroll offset
+        if hasattr(self, 'leaderboard_selected'):
+            selected_index = self.leaderboard_selected
+        else:
+            selected_index = 0
+            self.leaderboard_selected = 0
+            
+        if hasattr(self, 'leaderboard_scroll_offset'):
+            scroll_offset = self.leaderboard_scroll_offset
+        else:
+            scroll_offset = 0
+            self.leaderboard_scroll_offset = 0
+        
+        # Character entry dimensions - use reasonable width
+        entry_height = 100
+        entry_width = min(900, self.screen_width - 100)  # Reasonable row width, not full screen
+        start_y = 200
+        start_x = (self.screen_width - entry_width) // 2  # Center the row on screen
+        
+        # Calculate visible entries and ensure selected is in view
+        max_visible = max(1, (self.screen_height - start_y - 100) // entry_height)
+        total_characters = len(character_data)
+        
+        # Ensure selected index is within bounds
+        self.leaderboard_selected = max(0, min(selected_index, total_characters - 1))
+        
+        # Auto-scroll to keep selected item in view
+        if self.leaderboard_selected < scroll_offset:
+            self.leaderboard_scroll_offset = self.leaderboard_selected
+        elif self.leaderboard_selected >= scroll_offset + max_visible:
+            self.leaderboard_scroll_offset = self.leaderboard_selected - max_visible + 1
+        
+        # Ensure scroll offset is within bounds
+        max_scroll = max(0, total_characters - max_visible)
+        self.leaderboard_scroll_offset = max(0, min(self.leaderboard_scroll_offset, max_scroll))
+        
+        # Render visible entries
+        for i in range(max_visible):
+            data_index = i + self.leaderboard_scroll_offset
+            if data_index >= total_characters:
+                break
+                
+            char_name, display_name, best_score = character_data[data_index]
+            y_pos = start_y + i * entry_height
+            entry_rect = pg.Rect(start_x, y_pos, entry_width, entry_height - 10)
+            
+            # Check if this entry is selected
+            is_selected = (data_index == self.leaderboard_selected)
+            
+            # Draw entry background with clean style
+            if is_selected:
+                # Selected entry - bright outline
+                glow_rect = pg.Rect(entry_rect.x - 3, entry_rect.y - 3, entry_rect.width + 6, entry_rect.height + 6)
+                pg.draw.rect(screen, self.primary_color, glow_rect, border_radius=8)
+                
+                bg_color = (40, 40, 60, 180)
+                bg_surface = pg.Surface((entry_rect.width, entry_rect.height), pg.SRCALPHA)
+                bg_surface.fill(bg_color)
+                screen.blit(bg_surface, entry_rect)
+            else:
+                # Normal entry
+                bg_color = (30, 30, 40, 120)
+                bg_surface = pg.Surface((entry_rect.width, entry_rect.height), pg.SRCALPHA)
+                bg_surface.fill(bg_color)
+                screen.blit(bg_surface, entry_rect)
+            
+            # Draw clean border
+            border_color = self.primary_color if is_selected else self.secondary_color
+            pg.draw.rect(screen, border_color, entry_rect, width=1, border_radius=5)
+            
+            # Full-width horizontal layout: Number | Sprite | Name | Score/Wave
+            # Define section widths for horizontal layout with full width usage
+            rank_width = 80       # Fixed width for rank numbers (e.g., "#1", "#999")
+            sprite_width = 100    # Fixed width for character sprites
+            name_width = entry_width - rank_width - sprite_width - 300  # Flexible name width
+            stats_width = 300     # Fixed width for score and wave data
+            
+            # Calculate section positions
+            rank_x = entry_rect.x + 10
+            sprite_x = rank_x + rank_width
+            name_x = sprite_x + sprite_width
+            stats_x = name_x + name_width
+            
+            # Draw vertical separator lines between sections (subtle white lines)
+            separator_color = (255, 255, 255, 60)  # Subtle white with transparency
+            line_top = entry_rect.y + 5
+            line_bottom = entry_rect.y + entry_rect.height - 5
+            
+            # Separator after rank section
+            pg.draw.line(screen, separator_color, (sprite_x - 5, line_top), (sprite_x - 5, line_bottom), 1)
+            # Separator after sprite section  
+            pg.draw.line(screen, separator_color, (name_x - 5, line_top), (name_x - 5, line_bottom), 1)
+            # Separator after name section
+            pg.draw.line(screen, separator_color, (stats_x - 5, line_top), (stats_x - 5, line_bottom), 1)
+            
+            # 1. RANK NUMBER SECTION
+            rank_text = f"#{data_index + 1}"
+            rank_surface = self.menu_font.render(rank_text, True, (255, 215, 100))
+            rank_text_x = rank_x + (rank_width - rank_surface.get_width()) // 2  # Center in section
+            rank_text_y = entry_rect.y + (entry_rect.height - rank_surface.get_height()) // 2  # Center vertically
+            screen.blit(rank_surface, (rank_text_x, rank_text_y))
+            
+            # 2. CHARACTER SPRITE SECTION
+            sprite_size = 90  # Large sprite for better visibility
+            sprite_pos_x = sprite_x + (sprite_width - sprite_size) // 2  # Center in section
+            sprite_pos_y = entry_rect.y + (entry_rect.height - sprite_size) // 2  # Center vertically
+            
+            # Try to load character sprite
+            character_sprite = self._load_character_sprite_for_leaderboard(char_name, sprite_size)
+            if character_sprite:
+                screen.blit(character_sprite, (sprite_pos_x, sprite_pos_y))
+            else:
+                # Fallback: draw clean character placeholder
+                fallback_rect = pg.Rect(sprite_pos_x, sprite_pos_y, sprite_size, sprite_size)
+                fallback_color = (80 + (hash(char_name) % 80), 120, 160)
+                pg.draw.rect(screen, fallback_color, fallback_rect, border_radius=5)
+                pg.draw.rect(screen, self.secondary_color, fallback_rect, width=2, border_radius=5)
+                
+                # Draw character initial
+                if display_name:
+                    initial = display_name[0].upper()
+                    initial_text = self.menu_font.render(initial, True, self.primary_color)
+                    initial_rect = initial_text.get_rect(center=fallback_rect.center)
+                    screen.blit(initial_text, initial_rect)
+            
+            # 3. CHARACTER NAME SECTION
+            name_text = self.menu_font.render(display_name, True, self.primary_color)
+            name_text_x = name_x + 10  # Small left padding in section
+            name_text_y = entry_rect.y + (entry_rect.height - name_text.get_height()) // 2  # Center vertically
+            screen.blit(name_text, (name_text_x, name_text_y))
+            
+            # 4. STATS SECTION (Score and Wave in same section)
+            stats_text_x = stats_x + 10  # Small left padding in section
+            
+            # Score display
+            if best_score > 0:
+                score_text = f"Score: {best_score:,}"
+                score_color = (255, 215, 100)
+            else:
+                score_text = "No records"
+                score_color = self.secondary_color
+            
+            score_surface = self.small_font.render(score_text, True, score_color)
+            score_text_y = entry_rect.y + 20  # Upper part of stats section
+            screen.blit(score_surface, (stats_text_x, score_text_y))
+            
+            # Wave display
+            if best_score > 0:
+                best_wave = self.score_manager.get_character_best_waves(char_name)
+                if best_wave is not None:
+                    wave_text = f"Wave: {best_wave}"
+                    wave_surface = self.small_font.render(wave_text, True, (150, 255, 150))
+                    wave_text_y = entry_rect.y + 50  # Lower part of stats section
+                    screen.blit(wave_surface, (stats_text_x, wave_text_y))
+        
+        # Draw scrolling indicators if needed
+        if total_characters > max_visible:
+            self._render_scroll_indicators(screen, start_y, entry_height * max_visible, 
+                                         self.leaderboard_scroll_offset, total_characters, max_visible)
+    
+    def _load_character_sprite_for_leaderboard(self, char_name: str, sprite_size: int):
+        """Load and cache a character sprite for leaderboard display."""
+        if not hasattr(self, '_sprite_cache'):
+            self._sprite_cache = {}
+        
+        cache_key = f"{char_name}_{sprite_size}"
+        
+        if cache_key in self._sprite_cache:
+            return self._sprite_cache[cache_key]
+        
+        try:
+            sprite_path = self.character_manager.get_character_path(char_name)
+            if sprite_path and os.path.exists(sprite_path):
+                # Load the sprite sheet
+                sprite_sheet = pg.image.load(sprite_path).convert_alpha()
+                
+                # Try to determine sprite frame size more accurately
+                sheet_width = sprite_sheet.get_width()
+                sheet_height = sprite_sheet.get_height()
+                
+                # Common sprite sheet layouts to try
+                layouts = [
+                    (4, 4),  # 4x4 grid (16 frames)
+                    (8, 4),  # 8x4 grid (32 frames)
+                    (4, 8),  # 4x8 grid (32 frames)
+                    (8, 8),  # 8x8 grid (64 frames)
+                    (1, 1),  # Single sprite
+                ]
+                
+                best_frame = None
+                
+                for cols, rows in layouts:
+                    try:
+                        frame_width = sheet_width // cols
+                        frame_height = sheet_height // rows
+                        
+                        # Skip if frame would be too small
+                        if frame_width < 16 or frame_height < 16:
+                            continue
+                            
+                        # Extract first frame
+                        frame = pg.Surface((frame_width, frame_height), pg.SRCALPHA)
+                        frame.blit(sprite_sheet, (0, 0), (0, 0, frame_width, frame_height))
+                        
+                        # Check if frame has meaningful content (not mostly transparent)
+                        pixels = pg.surfarray.array3d(frame)
+                        alpha_data = pg.surfarray.array_alpha(frame)
+                        non_transparent_ratio = (alpha_data > 50).sum() / alpha_data.size
+                        
+                        if non_transparent_ratio > 0.1:  # At least 10% non-transparent
+                            best_frame = frame
+                            break
+                    except:
+                        continue
+                
+                if best_frame is None:
+                    # Fallback: try to use the whole image if it's reasonably sized
+                    if sheet_width <= 256 and sheet_height <= 256:
+                        best_frame = sprite_sheet
+                
+                if best_frame:
+                    # Scale preserving aspect ratio
+                    orig_width = best_frame.get_width()
+                    orig_height = best_frame.get_height()
+                    
+                    # Calculate scale factor to fit within sprite_size x sprite_size
+                    scale = min(sprite_size / orig_width, sprite_size / orig_height)
+                    new_width = int(orig_width * scale)
+                    new_height = int(orig_height * scale)
+                    
+                    scaled_sprite = pg.transform.scale(best_frame, (new_width, new_height))
+                    
+                    # Create final surface centered
+                    final_sprite = pg.Surface((sprite_size, sprite_size), pg.SRCALPHA)
+                    final_sprite.fill((0, 0, 0, 0))  # Transparent background
+                    
+                    # Center the scaled sprite
+                    x_offset = (sprite_size - new_width) // 2
+                    y_offset = (sprite_size - new_height) // 2
+                    final_sprite.blit(scaled_sprite, (x_offset, y_offset))
+                    
+                    # Cache it
+                    self._sprite_cache[cache_key] = final_sprite
+                    return final_sprite
+                
+        except Exception as e:
+            print(f"Error loading character sprite for {char_name}: {e}")
+        
+        return None
+    
+    def _render_scroll_indicators(self, screen, start_y: int, visible_height: int, 
+                                scroll_offset: int, total_items: int, visible_items: int):
+        """Render scroll indicators on the right side."""
+        if total_items <= visible_items:
+            return
+        
+        # Scroll bar dimensions
+        bar_width = 8
+        bar_x = self.screen_width - 60
+        bar_y = start_y
+        bar_height = visible_height
+        
+        # Draw scroll bar background
+        bar_bg = pg.Rect(bar_x, bar_y, bar_width, bar_height)
+        pg.draw.rect(screen, (60, 60, 60), bar_bg, border_radius=4)
+        
+        # Calculate scroll thumb position and size
+        thumb_ratio = visible_items / total_items
+        thumb_height = max(20, int(bar_height * thumb_ratio))
+        
+        scroll_ratio = scroll_offset / (total_items - visible_items) if total_items > visible_items else 0
+        thumb_y = bar_y + int((bar_height - thumb_height) * scroll_ratio)
+        
+        # Draw scroll thumb
+        thumb_rect = pg.Rect(bar_x, thumb_y, bar_width, thumb_height)
+        pg.draw.rect(screen, self.primary_color, thumb_rect, border_radius=4)
+        
+        # Draw scroll arrows
+        arrow_size = 15
+        # Up arrow
+        if scroll_offset > 0:
+            up_arrow_y = start_y - 25
+            up_points = [
+                (bar_x + bar_width // 2, up_arrow_y),
+                (bar_x + bar_width // 2 - arrow_size // 2, up_arrow_y + arrow_size),
+                (bar_x + bar_width // 2 + arrow_size // 2, up_arrow_y + arrow_size)
+            ]
+            pg.draw.polygon(screen, self.primary_color, up_points)
+        
+        # Down arrow
+        if scroll_offset + visible_items < total_items:
+            down_arrow_y = start_y + visible_height + 10
+            down_points = [
+                (bar_x + bar_width // 2, down_arrow_y + arrow_size),
+                (bar_x + bar_width // 2 - arrow_size // 2, down_arrow_y),
+                (bar_x + bar_width // 2 + arrow_size // 2, down_arrow_y)
+            ]
+            pg.draw.polygon(screen, self.primary_color, down_points)
+    
+    def _render_leaderboard_instructions(self, screen):
+        """Render navigation instructions."""
+        instructions = ["↑↓ Navigate • ESC Back to Menu"]
+        
+        instruction_text = self.small_font.render(instructions[0], True, self.secondary_color)
+        instruction_rect = instruction_text.get_rect(center=(self.screen_width // 2, self.screen_height - 50))
+        screen.blit(instruction_text, instruction_rect)
+    
+    def handle_leaderboard_input(self, event) -> Optional[str]:
+        """Handle input for leaderboard screen."""
+        if event.type == pg.KEYDOWN:
+            if event.key == pg.K_ESCAPE:
+                # Return to main menu
+                self.set_state(MenuState.MAIN)
+                return None
+            elif event.key == pg.K_UP:
+                # Navigate up in leaderboard
+                if hasattr(self, 'character_manager'):
+                    character_count = len(self.character_manager.get_character_list())
+                    if character_count > 0:
+                        if not hasattr(self, 'leaderboard_selected'):
+                            self.leaderboard_selected = 0
+                        self.leaderboard_selected = (self.leaderboard_selected - 1) % character_count
+                return None
+            elif event.key == pg.K_DOWN:
+                # Navigate down in leaderboard
+                if hasattr(self, 'character_manager'):
+                    character_count = len(self.character_manager.get_character_list())
+                    if character_count > 0:
+                        if not hasattr(self, 'leaderboard_selected'):
+                            self.leaderboard_selected = 0
+                        self.leaderboard_selected = (self.leaderboard_selected + 1) % character_count
+                return None
+            elif event.key == pg.K_PAGEUP:
+                # Page up (move up by visible page size)
+                if hasattr(self, 'character_manager'):
+                    character_count = len(self.character_manager.get_character_list())
+                    if character_count > 0:
+                        max_visible = max(1, (self.screen_height - 300) // 100)  # Estimate visible entries
+                        if not hasattr(self, 'leaderboard_selected'):
+                            self.leaderboard_selected = 0
+                        self.leaderboard_selected = max(0, self.leaderboard_selected - max_visible)
+                return None
+            elif event.key == pg.K_PAGEDOWN:
+                # Page down (move down by visible page size)
+                if hasattr(self, 'character_manager'):
+                    character_count = len(self.character_manager.get_character_list())
+                    if character_count > 0:
+                        max_visible = max(1, (self.screen_height - 300) // 100)  # Estimate visible entries
+                        if not hasattr(self, 'leaderboard_selected'):
+                            self.leaderboard_selected = 0
+                        self.leaderboard_selected = min(character_count - 1, self.leaderboard_selected + max_visible)
+                return None
+        elif event.type == pg.MOUSEMOTION:
+            # Update selection based on mouse hover
+            self.check_mouse_hover_leaderboard(event.pos)
+            return None
+        elif event.type == pg.MOUSEWHEEL:
+            # Mouse wheel scrolling support
+            if hasattr(self, 'character_manager'):
+                character_count = len(self.character_manager.get_character_list())
+                if character_count > 0:
+                    if not hasattr(self, 'leaderboard_selected'):
+                        self.leaderboard_selected = 0
+                    
+                    # Scroll up (negative y) or down (positive y)
+                    scroll_direction = -event.y  # Invert for natural scrolling
+                    self.leaderboard_selected = max(0, min(character_count - 1, 
+                                                          self.leaderboard_selected + scroll_direction))
+            return None
+        return None

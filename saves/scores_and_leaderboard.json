@@ -1,0 +1,136 @@
+{
+  "player_rapture_cores": 59,
+  "character_leaderboards": {
+    "cecil": [
+      {
+        "score": 250,
+        "waves_survived": 1,
+        "enemies_killed": 25,
+        "survival_time_seconds": 46,
+        "date": "2025-09-17 01:51:19",
+        "character_name": "cecil"
+      },
+      {
+        "score": 20,
+        "waves_survived": 1,
+        "enemies_killed": 2,
+        "survival_time_seconds": 3,
+        "date": "2025-09-16 18:54:34",
+        "character_name": "cecil"
+      }
+    ],
+    "crown": [
+      {
+        "score": 70,
+        "waves_survived": 1,
+        "enemies_killed": 7,
+        "survival_time_seconds": 10,
+        "date": "2025-09-16 21:22:32",
+        "character_name": "crown"
+      }
+    ],
+    "rapunzel": [
+      {
+        "score": 50,
+        "waves_survived": 1,
+        "enemies_killed": 5,
+        "survival_time_seconds": 11,
+        "date": "2025-09-16 23:29:09",
+        "character_name": "rapunzel"
+      }
+    ],
+    "snow-white": [
+      {
+        "score": 20,
+        "waves_survived": 1,
+        "enemies_killed": 2,
+        "survival_time_seconds": 4,
+        "date": "2025-09-16 23:33:48",
+        "character_name": "snow-white"
+      }
+    ],
+    "kilo": [
+      {
+        "score": 120,
+        "waves_survived": 1,
+        "enemies_killed": 12,
+        "survival_time_seconds": 30,
+        "date": "2025-09-17 00:52:15",
+        "character_name": "kilo"
+      },
+      {
+        "score": 60,
+        "waves_survived": 1,
+        "enemies_killed": 6,
+        "survival_time_seconds": 25,
+        "date": "2025-09-17 00:31:24",
+        "character_name": "kilo"
+      },
+      {
+        "score": 60,
+        "waves_survived": 1,
+        "enemies_killed": 6,
+        "survival_time_seconds": 18,
+        "date": "2025-09-17 00:47:40",
+        "character_name": "kilo"
+      },
+      {
+        "score": 60,
+        "waves_survived": 1,
+        "enemies_killed": 6,
+        "survival_time_seconds": 21,
+        "date": "2025-09-17 01:01:29",
+        "character_name": "kilo"
+      },
+      {
+        "score": 60,
+        "waves_survived": 1,
+        "enemies_killed": 6,
+        "survival_time_seconds": 27,
+        "date": "2025-09-17 01:08:12",
+        "character_name": "kilo"
+      },
+      {
+        "score": 40,
+        "waves_survived": 1,
+        "enemies_killed": 4,
+        "survival_time_seconds": 22,
+        "date": "2025-09-17 01:17:00",
+        "character_name": "kilo"
+      },
+      {
+        "score": 40,
+        "waves_survived": 1,
+        "enemies_killed": 4,
+        "survival_time_seconds": 17,
+        "date": "2025-09-17 01:21:54",
+        "character_name": "kilo"
+      },
+      {
+        "score": 20,
+        "waves_survived": 1,
+        "enemies_killed": 2,
+        "survival_time_seconds": 8,
+        "date": "2025-09-17 00:41:20",
+        "character_name": "kilo"
+      },
+      {
+        "score": 10,
+        "waves_survived": 1,
+        "enemies_killed": 1,
+        "survival_time_seconds": 10,
+        "date": "2025-09-17 01:08:25",
+        "character_name": "kilo"
+      },
+      {
+        "score": 10,
+        "waves_survived": 1,
+        "enemies_killed": 1,
+        "survival_time_seconds": 5,
+        "date": "2025-09-17 01:21:35",
+        "character_name": "kilo"
+      }
+    ]
+  },
+  "last_saved": "2025-09-17 01:51:19"
+}

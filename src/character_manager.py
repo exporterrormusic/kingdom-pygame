@@ -470,10 +470,10 @@ class CharacterSelectionMenu:
         weapon_damage = weapon_manager.get_damage(config.weapon_type) if weapon_manager.get_damage(config.weapon_type) else 25
         
         stats = [
-            ("WPN DMG", weapon_damage, 150),  # Weapon damage can go up to 120 for rocket launcher
-            ("SPD", config.stats.speed, 120), # Speed typically 45-100
-            ("HP", config.stats.hp, 120),     # HP typically 50-100  
-            ("BURST GEN", config.stats.burst_gen, 50) # Burst gen typically 15-45
+            ("WPN DMG", weapon_damage, 300),  # Set max to 300 for proper scaling
+            ("SPD", config.stats.speed, 300), # Set max to 300 for proper scaling
+            ("HP", config.stats.hp, 300),     # Set max to 300 for proper scaling  
+            ("BURST MULT", config.stats.burst_multiplier, 20) # Set max to 20 for multiplier scaling
         ]
         
         bar_width = self.detail_width - 60

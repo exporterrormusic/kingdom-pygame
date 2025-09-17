@@ -33,6 +33,9 @@ class MinigunEffectsManager:
         self.flame_interval = 0.02  # Interval between flame spawns at full speed
         self.shell_interval = 0.05  # Interval between shell ejections
         
+        # Lighting system reference (set externally)
+        self.lighting_system = None
+        
     def update(self, dt: float, is_firing: bool, fire_rate: float, gun_tip_pos: Tuple[float, float], gun_angle: float):
         """Update minigun effects with whip trail system."""
         # Update barrel spin
@@ -150,6 +153,13 @@ class MinigunEffectsManager:
         }
         self.impact_sparks.append(spark)
         
+        # Add lighting effect for whip impact
+        if self.lighting_system:
+            self.lighting_system.add_explosion_light(
+                x, y, 
+                intensity=0.8  # Moderate intensity for impact flashes
+            )
+        
     def get_whip_damage_segments(self):
         """Get current damage segments for collision checking."""
         return self.whip_damage_segments
@@ -246,6 +256,17 @@ class MinigunEffectsManager:
         """Render thick, curved glowing lines connecting bullets when at full speed."""
         if not self.whip_trail_active or len(bullets) < 2:
             return
+            
+        # Add lighting along the whip trail if lighting system is available
+        if self.lighting_system and len(bullets) >= 4:  # Only add lights for longer trails
+            # Add subtle lights along the trail every few bullets
+            for i in range(2, len(bullets) - 2, 3):  # Every 3rd bullet starting from index 2
+                bullet = bullets[i]
+                self.lighting_system.add_muzzle_flash(
+                    bullet.pos.x, bullet.pos.y,
+                    intensity=0.4,  # Subtle lighting along trail
+                    weapon_type="minigun"
+                )
             
         # Draw curved connections between bullets with multiple segments for smoothness
         for i in range(len(bullets) - 1):

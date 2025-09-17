@@ -422,7 +422,7 @@ class CoreManager:
         return total_collected  # Return 0 since we're just triggering animations
         return total_collected
         
-    def update(self, dt: float, player_pos: pg.Vector2 = None):
+    def update(self, dt: float, player_pos: pg.Vector2 = None, score_manager = None):
         """Update all cores and chests."""
         # Update core animations and magnetic attraction
         cores_to_remove = []
@@ -431,7 +431,12 @@ class CoreManager:
             
             # Remove cores that have finished their collection animation
             if core.collected:  # Core has finished collection animation
-                self.player_cores += core.amount
+                # Add to score manager instead of internal tracking
+                if score_manager:
+                    score_manager.add_rapture_cores(core.amount)
+                else:
+                    # Fallback to internal tracking if no score manager
+                    self.player_cores += core.amount
                 cores_to_remove.append(core)
         
         # Remove collected cores

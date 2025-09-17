@@ -44,15 +44,15 @@ class AnimatedPlayer:
             self.speed = character_config.stats.speed * 2.2  # Scale speed for gameplay (90 -> ~200 pixels/sec)
             self.max_health = character_config.stats.hp
             # Get weapon damage from weapon system instead of character config
-            self.burst_gauge_fill_rate = character_config.stats.burst_gen / 2.0  # Scale for balanced gameplay
+            self.burst_multiplier = character_config.stats.burst_multiplier  # Points per enemy kill
             self.weapon_type = character_config.weapon_type  # Get weapon type from config
-            print(f"Applied {character_display_name} stats: SPD={self.speed:.1f}, HP={self.max_health}, Burst Rate={self.burst_gauge_fill_rate}, Weapon={self.weapon_type}")
+            print(f"Applied {character_display_name} stats: SPD={self.speed:.1f}, HP={self.max_health}, Burst Multiplier={self.burst_multiplier}x, Weapon={self.weapon_type}")
         else:
             # Default stats for fallback
             self.speed = 200  # pixels per second
             self.max_health = 100
             self.weapon_damage = 25  # Default bullet damage
-            self.burst_gauge_fill_rate = 15.0  # Points per successful hit
+            self.burst_multiplier = 5  # Default burst multiplier
             self.weapon_type = 'Assault Rifle'
             print(f"Using default stats for {character_display_name}")
         
@@ -74,12 +74,10 @@ class AnimatedPlayer:
         self.health = self.max_health  # Current health starts at max
         self.size = 20
         
-        # BURST gauge system
+        # BURST gauge system - now point-based (no cooldown)
         self.burst_gauge = 0.0
         self.max_burst_gauge = 100.0
         self.burst_ready = False
-        self.burst_cooldown = 0.0
-        self.max_burst_cooldown = 15.0  # Time before burst can be used again
         
         # Burst visual overlay system
         self.burst_overlay_active = False
@@ -87,19 +85,24 @@ class AnimatedPlayer:
         self.burst_overlay_timer = 0.0
         self.burst_portrait = None
         
-        # COVER shield system
-        self.shield_active = False
-        self.shield_pos = pg.Vector2(0, 0)  # Shield position in world coordinates
-        self.shield_width = 12  # Shield thickness
-        self.shield_height = 80  # Much taller shield
-        self.shield_distance = 70  # Increased distance from player to avoid clipping
-        self.shield_speed_reduction = 0.5  # 50% speed reduction when shield is active
-        self.shield_color = (100, 150, 255)  # Light blue color
-        self.shield_border_color = (50, 100, 200)  # Darker blue border
-        self.shield_curve_radius = 15  # Curve radius for shield shape
+        # Special attack system
+        self.special_attack_cooldowns = {}  # Cooldowns per weapon type
+        self.special_attack_active = False
+        self.using_special_attack = False  # Flag for special attack bullets
+        self.fire_special_attack_shot = False  # Flag to trigger immediate firing
         
         # Ammo and reload system - initialize with weapon manager values
         self.current_ammo = self.max_ammo  # Start with full magazine
+        
+        # Grenade launcher ammo (for weapons that support it)
+        if weapon_manager.has_grenade_launcher(self.weapon_type):
+            self.max_grenade_rounds = weapon_manager.get_grenade_rounds(self.weapon_type)
+            self.current_grenade_rounds = self.max_grenade_rounds
+            self.grenade_reload_duration = weapon_manager.get_grenade_reload_time(self.weapon_type)
+        else:
+            self.max_grenade_rounds = 0
+            self.current_grenade_rounds = 0
+            self.grenade_reload_duration = 0.0
         self.is_reloading = False
         self.reload_timer = 0.0
         self.last_reload_input = False  # Track R key state for manual reload
@@ -203,11 +206,16 @@ class AnimatedPlayer:
         if self.is_reloading:
             self.reload_timer += dt
             if self.reload_timer >= self.reload_duration:
-                # Reload complete
+                # Reload complete - reload both primary and grenade ammo
                 self.current_ammo = self.max_ammo
+                if weapon_manager.has_grenade_launcher(self.weapon_type):
+                    self.current_grenade_rounds = self.max_grenade_rounds
                 self.is_reloading = False
                 self.reload_timer = 0.0
-                print(f"Reload complete! ({self.current_ammo}/{self.max_ammo})")
+                if weapon_manager.has_grenade_launcher(self.weapon_type):
+                    print(f"Reload complete! Ammo: ({self.current_ammo}/{self.max_ammo}) Grenades: ({self.current_grenade_rounds}/{self.max_grenade_rounds})")
+                else:
+                    print(f"Reload complete! ({self.current_ammo}/{self.max_ammo})")
                 
                 # Clear the minigun reload reset flag when reload completes
                 if bullet_manager and self.weapon_type == "Minigun":
@@ -224,6 +232,20 @@ class AnimatedPlayer:
             # Auto-reload when out of ammo
             if self.current_ammo <= 0:
                 self.start_reload(bullet_manager)
+    
+    def can_fire_grenade(self) -> bool:
+        """Check if player can fire grenade (has grenade rounds and not reloading)."""
+        return self.current_grenade_rounds > 0 and not self.is_reloading and weapon_manager.has_grenade_launcher(self.weapon_type)
+    
+    def use_grenade_round(self):
+        """Use one grenade round from current grenade ammo."""
+        if self.current_grenade_rounds > 0:
+            self.current_grenade_rounds -= 1
+            # Auto-reload when out of grenades (but not if we still have regular ammo)
+            if self.current_grenade_rounds <= 0 and self.current_ammo <= 0:
+                self.start_reload()
+        else:
+            print(f"No grenades available! Current: {self.current_grenade_rounds}/{self.max_grenade_rounds}")
     
     def handle_input(self, keys_pressed: dict, mouse_pos: Tuple[int, int], current_time: float, 
                     effects_manager=None, camera_shake_callback=None, mouse_buttons=None, bullet_manager=None):
@@ -263,24 +285,77 @@ class AnimatedPlayer:
             dy = mouse_pos[1] - self.pos.y
             self.angle = math.degrees(math.atan2(dy, dx))
             
-        # COVER shield input (Right mouse button)
+        # Special attack input (Right mouse button)
         if mouse_buttons and len(mouse_buttons) > 2:
-            self.shield_active = mouse_buttons[2]  # Right mouse button (index 2)
+            right_mouse_pressed = mouse_buttons[2]  # Right mouse button (index 2)
             
-            # Update shield position when active
-            if self.shield_active:
-                self.update_shield_position()
+            # SMG and Sword special attacks support continuous firing
+            if self.weapon_type in ["SMG", "Sword"]:
+                if right_mouse_pressed:
+                    # Continuous firing for SMG and Sword special attacks
+                    if self.try_special_attack(current_time):
+                        self.fire_special_attack_shot = True
+                else:
+                    # Reset flags when right mouse is released
+                    self.fire_special_attack_shot = False
+                    self.using_special_attack = False  # Clear special attack mode
+            else:
+                # Handle special attack trigger (single press, not held) for other weapons
+                if right_mouse_pressed and not getattr(self, 'right_mouse_was_pressed', False):
+                    self.try_special_attack(current_time)
+            
+            self.right_mouse_was_pressed = right_mouse_pressed
     
-    def update_shield_position(self):
-        """Update shield position based on player position and facing direction."""
-        # Position shield on a circle around the player at fixed distance
-        angle_rad = math.radians(self.angle)
-        shield_offset_x = math.cos(angle_rad) * self.shield_distance
-        shield_offset_y = math.sin(angle_rad) * self.shield_distance
+    def try_special_attack(self, current_time: float):
+        """Attempt to use weapon-specific special attack."""
+        weapon_type = getattr(self, 'weapon_type', 'Assault Rifle')
         
-        # Shield position on the circle around player
-        self.shield_pos.x = self.pos.x + shield_offset_x
-        self.shield_pos.y = self.pos.y + shield_offset_y
+        # Check cooldown for this weapon type
+        if weapon_type in self.special_attack_cooldowns:
+            if current_time < self.special_attack_cooldowns[weapon_type]:
+                return False  # Still on cooldown
+        
+        # Activate special attack
+        self.perform_special_attack(weapon_type, current_time)
+        return True
+    
+    def perform_special_attack(self, weapon_type: str, current_time: float):
+        """Perform weapon-specific special attack."""
+        # Set cooldown based on weapon type
+        from src.weapon_manager import weapon_manager
+        
+        # Get weapon special attack config
+        weapon_config = weapon_manager.get_weapon_config(weapon_type)
+        if weapon_config and 'special_attack' in weapon_config:
+            cooldown = weapon_config['special_attack'].get('cooldown', 3.0)
+        else:
+            cooldown = self.get_special_attack_cooldown(weapon_type)
+        
+        self.special_attack_cooldowns[weapon_type] = current_time + cooldown
+        
+        # Activate special attack mode and fire immediately
+        if weapon_type == "Shotgun":
+            self.using_special_attack = True
+            # Force a shot to be fired immediately with special attack flag
+            self.fire_special_attack_shot = True
+            print(f"Shotgun special attack activated - firing V-blast shots!")
+        else:
+            print(f"Special attack activated for {weapon_type}!")
+            self.using_special_attack = True
+            self.fire_special_attack_shot = True
+    
+    def get_special_attack_cooldown(self, weapon_type: str) -> float:
+        """Get cooldown duration for weapon special attacks."""
+        cooldowns = {
+            'Assault Rifle': 3.0,    # Burst fire mode
+            'SMG': 2.5,              # Overcharge mode
+            'Sniper': 5.0,           # Piercing shot
+            'Shotgun': 4.0,          # Explosive shells
+            'Rocket Launcher': 6.0,  # Cluster rockets
+            'Minigun': 8.0,          # Overdrive mode
+            'Sword': 3.5             # Whirlwind attack
+        }
+        return cooldowns.get(weapon_type, 3.0)
     
     def try_dash(self, current_time: float, effects_manager=None, camera_shake_callback=None):
         """Attempt to dash if player is moving and not already dashing."""
@@ -322,37 +397,36 @@ class AnimatedPlayer:
         return any(self.move_keys.values())
     
     def add_hit_flash(self):
-        """Add red flash effect when player is hit."""
-        self.hit_flash_duration = 0.3  # Flash duration in seconds
-        self.hit_flash_timer = 0.0
+        """Add red flash effect when player is hit - DISABLED (using screen border instead)."""
+        # Disabled to prevent white flash issues - using red screen border in main.py instead
+        pass
     
     def update_burst_system(self, dt: float):
         """Update the BURST gauge system."""
-        # Update cooldown
-        if self.burst_cooldown > 0:
-            self.burst_cooldown -= dt
-            if self.burst_cooldown <= 0:
-                self.burst_ready = True
-        
         # Check if gauge is full and ready
-        if self.burst_gauge >= self.max_burst_gauge and self.burst_cooldown <= 0:
+        if self.burst_gauge >= self.max_burst_gauge:
             self.burst_ready = True
     
-    def add_burst_charge(self):
-        """Add charge to the BURST gauge when hitting an enemy."""
+    def add_burst_points(self, points: int = 1):
+        """Add points to the BURST gauge when killing an enemy."""
         if self.burst_gauge < self.max_burst_gauge:
-            self.burst_gauge = min(self.max_burst_gauge, self.burst_gauge + self.burst_gauge_fill_rate)
+            # Calculate actual points based on multiplier
+            actual_points = points * self.burst_multiplier
+            self.burst_gauge = min(self.max_burst_gauge, self.burst_gauge + actual_points)
+            
+    def add_burst_charge(self):
+        """Legacy method for compatibility - adds 1 point."""
+        self.add_burst_points(1)
     
     def can_use_burst(self) -> bool:
         """Check if BURST ability can be used."""
-        return self.burst_ready and self.burst_gauge >= self.max_burst_gauge and self.burst_cooldown <= 0
+        return self.burst_ready and self.burst_gauge >= self.max_burst_gauge
     
     def use_burst(self) -> bool:
         """Use BURST ability if available."""
         if self.can_use_burst():
             self.burst_gauge = 0.0
             self.burst_ready = False
-            self.burst_cooldown = self.max_burst_cooldown
             return True
         return False
     
@@ -473,10 +547,8 @@ class AnimatedPlayer:
             # Normalize diagonal movement
             if movement.length() > 0:
                 movement = movement.normalize()
-                # Apply shield speed reduction if shield is active
+                # Apply speed
                 effective_speed = self.speed
-                if self.shield_active:
-                    effective_speed = self.speed * (1 - self.shield_speed_reduction)
                 self.velocity = movement * effective_speed
             else:
                 self.velocity = pg.Vector2(0, 0)
@@ -546,6 +618,17 @@ class AnimatedPlayer:
         
         return pg.Vector2(tip_x, tip_y)
     
+    def get_gun_tip_position_at_angle(self, angle: float) -> pg.Vector2:
+        """Get the position where bullets should spawn from at a specific angle."""
+        # Calculate the tip of the "gun" based on specified angle
+        gun_length = self.size + 60  # Same as regular gun tip calculation
+        angle_rad = math.radians(angle)
+        
+        tip_x = self.pos.x + math.cos(angle_rad) * gun_length
+        tip_y = self.pos.y + math.sin(angle_rad) * gun_length
+        
+        return pg.Vector2(tip_x, tip_y)
+    
     def render(self, screen: pg.Surface, current_time: float = 0.0, offset=(0, 0)):
         """Render the player."""
         # Apply camera offset
@@ -593,10 +676,6 @@ class AnimatedPlayer:
         else:
             # Fallback to geometric rendering
             self._render_geometric(screen, render_x, render_y)
-        
-        # Draw shield if active
-        if self.shield_active:
-            self._render_shield(screen, offset)
         
         # Draw health bar
         self._render_health_bar(screen, render_x, render_y)
@@ -713,50 +792,136 @@ class AnimatedPlayer:
         bar_x = render_x - bar_width // 2
         bar_y = render_y + self.size + 10  # Below the player sprite
         
+        # Special handling for sniper rifle (special ammo)
+        is_sniper = hasattr(self, 'weapon_type') and self.weapon_type == "Sniper"
+        
         # Background
-        pg.draw.rect(screen, (40, 40, 40), (bar_x, bar_y, bar_width, bar_height))
+        bg_color = (60, 60, 80) if is_sniper else (40, 40, 40)
+        pg.draw.rect(screen, bg_color, (bar_x, bar_y, bar_width, bar_height))
         
         if self.is_reloading:
             # Show reload progress
             reload_progress = min(1.0, self.reload_timer / self.reload_duration)
             reload_width = reload_progress * bar_width
-            # Yellow color during reload
-            pg.draw.rect(screen, (255, 255, 0), (bar_x, bar_y, reload_width, bar_height))
             
-            # Add pulsing effect during reload
-            import math
-            pulse = abs(math.sin(self.reload_timer * 8)) * 50  # Pulsing intensity
-            reload_color = (255, 255, int(pulse))
-            pg.draw.rect(screen, reload_color, (bar_x, bar_y, reload_width, bar_height))
+            if is_sniper:
+                # Blue reload color for sniper
+                import math
+                pulse = abs(math.sin(self.reload_timer * 8)) * 50
+                reload_color = (int(pulse), 150, 255)
+                pg.draw.rect(screen, reload_color, (bar_x, bar_y, reload_width, bar_height))
+                # Add glow effect for sniper reload
+                glow_color = (50, 100, 200, 128)
+                glow_rect = pg.Rect(bar_x - 2, bar_y - 2, reload_width + 4, bar_height + 4)
+                pg.draw.rect(screen, glow_color[:3], glow_rect, 2)
+            else:
+                # Yellow color during reload for other weapons
+                import math
+                pulse = abs(math.sin(self.reload_timer * 8)) * 50
+                reload_color = (255, 255, int(pulse))
+                pg.draw.rect(screen, reload_color, (bar_x, bar_y, reload_width, bar_height))
         else:
             # Show current ammo
             ammo_ratio = self.current_ammo / self.max_ammo if self.max_ammo > 0 else 0
             ammo_width = ammo_ratio * bar_width
             
-            # Color based on ammo level
-            if ammo_ratio > 0.6:
-                ammo_color = (0, 255, 0)    # Green - plenty of ammo
-            elif ammo_ratio > 0.3:
-                ammo_color = (255, 255, 0)  # Yellow - medium ammo
+            if is_sniper:
+                # Blue ammo bar for sniper (special ammo)
+                import math, time
+                glow_pulse = abs(math.sin(time.time() * 3)) * 0.3 + 0.7  # Gentle glow pulse
+                base_blue = int(255 * glow_pulse)
+                base_cyan = int(150 * glow_pulse)
+                
+                if ammo_ratio > 0.6:
+                    ammo_color = (base_cyan, base_cyan, base_blue)    # Bright blue - plenty of special ammo
+                elif ammo_ratio > 0.3:
+                    ammo_color = (base_cyan // 2, base_cyan, base_blue)  # Medium blue
+                else:
+                    ammo_color = (100, base_cyan // 2, base_blue)    # Darker blue - low special ammo
+                
+                pg.draw.rect(screen, ammo_color, (bar_x, bar_y, ammo_width, bar_height))
+                
+                # Add outer glow effect for sniper
+                glow_intensity = int(100 * glow_pulse)
+                glow_color = (30, 50, glow_intensity)
+                glow_rect = pg.Rect(bar_x - 1, bar_y - 1, ammo_width + 2, bar_height + 2)
+                pg.draw.rect(screen, glow_color, glow_rect, 1)
             else:
-                ammo_color = (255, 0, 0)    # Red - low ammo
-            
-            pg.draw.rect(screen, ammo_color, (bar_x, bar_y, ammo_width, bar_height))
+                # Normal color progression for other weapons
+                if ammo_ratio > 0.6:
+                    ammo_color = (0, 255, 0)    # Green - plenty of ammo
+                elif ammo_ratio > 0.3:
+                    ammo_color = (255, 255, 0)  # Yellow - medium ammo
+                else:
+                    ammo_color = (255, 0, 0)    # Red - low ammo
+                
+                pg.draw.rect(screen, ammo_color, (bar_x, bar_y, ammo_width, bar_height))
         
         # Border
-        pg.draw.rect(screen, (100, 100, 100), (bar_x, bar_y, bar_width, bar_height), 1)
+        border_color = (120, 150, 200) if is_sniper else (100, 100, 100)
+        pg.draw.rect(screen, border_color, (bar_x, bar_y, bar_width, bar_height), 1)
         
         # Ammo text
         font = pg.font.Font(None, 20)
         if self.is_reloading:
-            ammo_text = font.render("RELOADING", True, (255, 255, 255))
+            text_content = "RELOADING"
+            text_color = (150, 200, 255) if is_sniper else (255, 255, 255)
         else:
-            ammo_text = font.render(f"{self.current_ammo}/{self.max_ammo}", True, (255, 255, 255))
+            if is_sniper:
+                text_content = f"{self.current_ammo}/{self.max_ammo} SPECIAL"
+                text_color = (150, 200, 255)
+            else:
+                text_content = f"{self.current_ammo}/{self.max_ammo}"
+                text_color = (255, 255, 255)
+        
+        ammo_text = font.render(text_content, True, text_color)
         
         text_rect = ammo_text.get_rect()
         text_x = render_x - text_rect.width // 2
         text_y = bar_y + bar_height + 2
         screen.blit(ammo_text, (text_x, text_y))
+        
+        # Display grenade ammo if this weapon has grenade launcher
+        if (hasattr(self, 'max_grenade_rounds') and self.max_grenade_rounds > 0 and 
+            hasattr(self, 'weapon_type') and weapon_manager.has_grenade_launcher(self.weapon_type)):
+            
+            # Grenade ammo bar (smaller, positioned below regular ammo)
+            grenade_bar_width = 40
+            grenade_bar_height = 6
+            grenade_bar_x = render_x - grenade_bar_width // 2
+            grenade_bar_y = text_y + text_rect.height + 5
+            
+            # Background
+            pg.draw.rect(screen, (40, 30, 20), (grenade_bar_x, grenade_bar_y, grenade_bar_width, grenade_bar_height))
+            
+            # Grenade ammo fill
+            if self.max_grenade_rounds > 0:
+                grenade_ratio = self.current_grenade_rounds / self.max_grenade_rounds
+                grenade_width = grenade_ratio * grenade_bar_width
+                
+                # Color based on grenade ammo level
+                if grenade_ratio > 0.6:
+                    grenade_color = (255, 165, 0)   # Orange - plenty of grenades
+                elif grenade_ratio > 0.3:
+                    grenade_color = (255, 100, 0)   # Dark orange - medium grenades
+                else:
+                    grenade_color = (200, 60, 0)    # Red-orange - low grenades
+                
+                pg.draw.rect(screen, grenade_color, (grenade_bar_x, grenade_bar_y, grenade_width, grenade_bar_height))
+            
+            # Border
+            pg.draw.rect(screen, (150, 100, 50), (grenade_bar_x, grenade_bar_y, grenade_bar_width, grenade_bar_height), 1)
+            
+            # Grenade text
+            grenade_font = pg.font.Font(None, 16)  # Smaller font
+            grenade_text_content = f"G: {self.current_grenade_rounds}/{self.max_grenade_rounds}"
+            grenade_text_color = (255, 180, 100)
+            
+            grenade_text = grenade_font.render(grenade_text_content, True, grenade_text_color)
+            grenade_text_rect = grenade_text.get_rect()
+            grenade_text_x = render_x - grenade_text_rect.width // 2
+            grenade_text_y = grenade_bar_y + grenade_bar_height + 2
+            screen.blit(grenade_text, (grenade_text_x, grenade_text_y))
     
     def _render_burst_gauge(self, screen: pg.Surface, render_x: int, render_y: int):
         """Render the BURST gauge below the health bar."""
@@ -777,9 +942,6 @@ class AnimatedPlayer:
             import time
             pulse = (math.sin(time.time() * 8) + 1) * 0.5  # Pulse between 0 and 1
             burst_color = (255, int(255 * pulse + 200 * (1 - pulse)), 0)  # Pulsing yellow-gold
-        elif self.burst_cooldown > 0:
-            # In cooldown - dim red
-            burst_color = (100, 50, 50)
         else:
             # Filling up - yellow
             burst_color = (255, 255, 0)
@@ -834,7 +996,7 @@ class AnimatedPlayer:
         overlay.fill((0, 255, 255))  # Cyan tint
         screen.blit(overlay, (0, 0))
         
-        # Draw burst particles
+        # Draw burst particles - optimized
         for particle in self.burst_effect_particles:
             life_progress = 1.0 - (particle['life'] / particle['max_life'])
             
@@ -852,16 +1014,15 @@ class AnimatedPlayer:
             colors = [(0, 255, 255), (255, 0, 255), (255, 255, 0)]  # Cyan, Magenta, Yellow
             color = colors[int(particle['angle']) % len(colors)]
             
-            # Draw particle with glow effect
-            for i in range(3):
-                glow_size = particle_size + i * 2
-                glow_alpha = particle_alpha // (i + 1)
-                glow_color = (*color, glow_alpha)
-                
-                if glow_size > 0 and glow_alpha > 0:
-                    particle_surf = pg.Surface((glow_size * 2, glow_size * 2), pg.SRCALPHA)
-                    pg.draw.circle(particle_surf, glow_color, (glow_size, glow_size), int(glow_size))
-                    screen.blit(particle_surf, (p_x - glow_size, p_y - glow_size))
+            # Simplified particle rendering - just draw circles directly instead of surface creation
+            if particle_size > 0:
+                pos = (int(p_x), int(p_y))
+                # Main particle
+                pg.draw.circle(screen, color, pos, int(particle_size))
+                # Simple glow effect with one additional circle
+                if particle_size > 2:
+                    glow_color = (color[0] // 2, color[1] // 2, color[2] // 2)
+                    pg.draw.circle(screen, glow_color, pos, int(particle_size + 2))
         
         # Draw character portrait if available
         if self.burst_portrait and progress < 0.6:  # Show portrait for first 60% of duration
@@ -928,95 +1089,3 @@ class AnimatedPlayer:
         gun_tip_x = self.pos.x + math.cos(math.radians(self.angle)) * gun_length
         gun_tip_y = self.pos.y + math.sin(math.radians(self.angle)) * gun_length
         return pg.Vector2(gun_tip_x, gun_tip_y)
-    
-    def _render_shield(self, screen: pg.Surface, offset=(0, 0)):
-        """Render the curved, rotated shield when active."""
-        if not self.shield_active:
-            return
-            
-        # Apply screen offset
-        shield_x = self.shield_pos.x - offset[0]
-        shield_y = self.shield_pos.y - offset[1]
-        
-        # Shield should face outward from the player's position
-        # Calculate the angle from player to shield position
-        dx = self.shield_pos.x - self.pos.x
-        dy = self.shield_pos.y - self.pos.y
-        radius_angle = math.degrees(math.atan2(dy, dx))
-        
-        # Shield faces outward (same direction as the radius from player to shield)
-        shield_angle = radius_angle
-        shield_angle_rad = math.radians(shield_angle)
-        
-        # Create curved shield using multiple segments
-        self._draw_curved_shield(screen, shield_x, shield_y, shield_angle_rad)
-    
-    def _draw_curved_shield(self, screen: pg.Surface, center_x: float, center_y: float, angle: float):
-        """Draw a curved shield using arc segments."""
-        import pygame as pg
-        
-        # Shield dimensions
-        half_height = self.shield_height // 2
-        curve_offset = self.shield_curve_radius
-        
-        # The shield should face the same direction as the radius (not perpendicular)
-        # Remove the 90-degree rotation to fix the orientation
-        perpendicular_angle = angle  # Use the radius angle directly
-        
-        # Calculate shield corner points relative to center, then rotate them
-        # Create a curved shield by drawing an arc and connecting lines
-        
-        # Points for the shield curve (before rotation)
-        shield_points = []
-        
-        # Create arc points for the curved front face
-        num_arc_points = 8
-        for i in range(num_arc_points + 1):
-            # Create arc from -90 to +90 degrees relative to shield orientation
-            arc_angle = math.radians(-90 + (180 * i / num_arc_points))
-            arc_x = curve_offset * math.cos(arc_angle)
-            arc_y = (half_height * 0.8) * math.sin(arc_angle)  # Slightly flattened arc
-            
-            # Rotate the point by the perpendicular angle (shield orientation)
-            rotated_x = arc_x * math.cos(perpendicular_angle) - arc_y * math.sin(perpendicular_angle)
-            rotated_y = arc_x * math.sin(perpendicular_angle) + arc_y * math.cos(perpendicular_angle)
-            
-            shield_points.append((center_x + rotated_x, center_y + rotated_y))
-        
-        # Add back edge points to complete the shield
-        # Back left point
-        back_x = -self.shield_width
-        back_y = -half_height
-        rotated_x = back_x * math.cos(perpendicular_angle) - back_y * math.sin(perpendicular_angle)
-        rotated_y = back_x * math.sin(perpendicular_angle) + back_y * math.cos(perpendicular_angle)
-        shield_points.append((center_x + rotated_x, center_y + rotated_y))
-        
-        # Back right point
-        back_x = -self.shield_width
-        back_y = half_height
-        rotated_x = back_x * math.cos(perpendicular_angle) - back_y * math.sin(perpendicular_angle)
-        rotated_y = back_x * math.sin(perpendicular_angle) + back_y * math.cos(perpendicular_angle)
-        shield_points.append((center_x + rotated_x, center_y + rotated_y))
-        
-        # Draw the filled shield polygon
-        if len(shield_points) >= 3:
-            pg.draw.polygon(screen, self.shield_color, shield_points)
-            pg.draw.polygon(screen, self.shield_border_color, shield_points, 3)
-        
-        # Add a center highlight line for extra visual detail
-        # Calculate start and end points for center line
-        line_start_x = 0
-        line_start_y = -half_height * 0.6
-        line_end_x = 0
-        line_end_y = half_height * 0.6
-        
-        # Rotate center line points by perpendicular angle
-        start_rotated_x = line_start_x * math.cos(perpendicular_angle) - line_start_y * math.sin(perpendicular_angle)
-        start_rotated_y = line_start_x * math.sin(perpendicular_angle) + line_start_y * math.cos(perpendicular_angle)
-        end_rotated_x = line_end_x * math.cos(perpendicular_angle) - line_end_y * math.sin(perpendicular_angle)
-        end_rotated_y = line_end_x * math.sin(perpendicular_angle) + line_end_y * math.cos(perpendicular_angle)
-        
-        start_point = (center_x + start_rotated_x, center_y + start_rotated_y)
-        end_point = (center_x + end_rotated_x, center_y + end_rotated_y)
-        
-        pg.draw.line(screen, self.shield_border_color, start_point, end_point, 2)

@@ -15,10 +15,15 @@ from src.player import Player
 from src.animated_player import AnimatedPlayer
 from src.bullet import BulletManager
 from src.enemy import EnemyManager
-from src.collision import CollisionManager, EffectsManager, AtmosphericEffects
+from src.collision import CollisionManager
+from src.visual_effects import EffectsManager
+from src.atmospheric_effects import AtmosphericEffects
 from src.game_states import StateManager, GameState
 from src.character_manager import CharacterManager, CharacterSelectionMenu
 from src.weapon_manager import weapon_manager
+from src.camera_system import CameraSystem
+from src.visual_effects import VisualEffectsSystem  
+from src.combat_system import CombatSystem
 from src.missile_system import MissileManager
 from src.slash_effect import SlashEffectManager
 from src.world_manager import WorldManager
@@ -27,6 +32,7 @@ from src.missile_system import MissileManager
 from src.slash_effect import SlashEffectManager
 from src.slash_effect import SlashEffectManager
 from src.missile_system import MissileManager
+from src.score_manager import ScoreManager
 
 # Game constants
 DEFAULT_SCREEN_WIDTH = 1920
@@ -98,6 +104,21 @@ class Game:
         
         self.effects_manager = EffectsManager()
         self.collision_manager = CollisionManager()
+        
+        # Initialize modular systems
+        self.camera_system = CameraSystem(self.screen_width, self.screen_height)
+        self.visual_effects = VisualEffectsSystem(self.screen_width, self.screen_height)
+        self.combat_system = CombatSystem(self)
+        
+        # Initialize score management system
+        self.score_manager = ScoreManager()
+        
+        # Set menu system dependencies for advanced features
+        self.state_manager.enhanced_menu.set_dependencies(
+            character_manager=self.character_manager,
+            score_manager=self.score_manager
+        )
+        
         self.slash_effect_manager = SlashEffectManager()
         self.missile_manager = MissileManager()
         
@@ -110,26 +131,64 @@ class Game:
         self.minigun_effects_manager = MinigunEffectsManager()
         self.shotgun_effects_manager = ShotgunEffectsManager()
         
-        # Camera settings for infinite world
-        self.camera_x = 0.0  # World camera position
-        self.camera_y = 0.0
-        self.base_zoom = 1.0  # Current zoom level 
+        # Camera zoom limits (handled by camera system)
         self.min_zoom = 0.8   # Limited zoom out to prevent going too wide
         self.max_zoom = 2.0   # Can zoom in to 0.5x current view (closer)
-        
-        # Camera shake system
-        self.camera_shake_intensity = 0.0
-        self.camera_shake_duration = 0.0
-        self.camera_offset = pg.Vector2(0, 0)
         
         # Game state
         self.running = True
         self.dt = 0.0
         self.game_time = 0.0
-        self.score = 0
+        # Remove old score tracking - now handled by score_manager
         
         # Input handling
         self.keys_just_pressed = []
+
+    # Camera system compatibility properties
+    @property
+    def camera_x(self):
+        return self.camera_system.camera_x
+    
+    @camera_x.setter
+    def camera_x(self, value):
+        self.camera_system.camera_x = value
+    
+    @property
+    def camera_y(self):
+        return self.camera_system.camera_y
+    
+    @camera_y.setter
+    def camera_y(self, value):
+        self.camera_system.camera_y = value
+    
+    @property
+    def camera_offset(self):
+        return self.camera_system.camera_offset
+    
+    @camera_offset.setter
+    def camera_offset(self, value):
+        self.camera_system.camera_offset = value
+    
+    @property
+    def base_zoom(self):
+        return self.camera_system.base_zoom
+    
+    @base_zoom.setter
+    def base_zoom(self, value):
+        self.camera_system.base_zoom = value
+    
+    # Visual effects system compatibility properties
+    @property
+    def contrast_fade_effect(self):
+        return self.visual_effects.combat_contrast_active
+    
+    @property
+    def hit_border_effect(self):
+        return self.visual_effects.hit_border_timer
+    
+    @property
+    def vignette_effect(self):
+        return self.visual_effects.vignette_enabled
     
     def create_crosshair_cursor(self):
         """Create and set a custom crosshair cursor."""
@@ -244,8 +303,14 @@ class Game:
         self.atmospheric_effects = AtmosphericEffects(self.screen_width, self.screen_height)
         self.atmospheric_effects.set_random_atmosphere()
         
-        self.score = 0
-        self.game_time = 0.0
+        # Start new survival match tracking
+        self.score_manager.start_new_match(self.game_time)
+        
+        # Clear all cores on the map but keep player's collected cores (currency)
+        if self.world_manager and hasattr(self.world_manager, 'core_manager'):
+            # Only clear cores and chests on the map, not the player's total
+            self.world_manager.core_manager.clear_all_cores()
+            print(f"Game reset - Player keeps {self.score_manager.player_rapture_cores} cores as currency")
         
         # Sword attack state for continuous damage
         self.active_sword_attack = None
@@ -343,6 +408,13 @@ class Game:
         world_y = self.camera_y + (screen_y - center_y)
         
         return (world_x, world_y)
+    
+    def calculate_angle_to_target(self, start_x: float, start_y: float, target_x: float, target_y: float) -> float:
+        """Calculate angle in degrees from start position to target position."""
+        import math
+        dx = target_x - start_x
+        dy = target_y - start_y
+        return math.degrees(math.atan2(dy, dx))
     
     def handle_events(self):
         """Handle game events."""
@@ -495,7 +567,15 @@ class Game:
                 if not self.state_manager.handle_welcome_input(event):
                     self.running = False
             elif self.state_manager.get_state() == GameState.MENU:
-                if not self.state_manager.handle_enhanced_menu_input(event):
+                result = self.state_manager.enhanced_menu.handle_input(event)
+                if result == "quit":
+                    self.running = False
+                elif result == "resume_game":
+                    # Resume the paused game
+                    self.state_manager.change_state(GameState.PLAYING)
+                elif result == "new_game":
+                    self.state_manager.change_state(GameState.CHARACTER_SELECT)
+                elif not self.state_manager.handle_enhanced_menu_input(event):
                     self.running = False
             elif self.state_manager.get_state() == GameState.SETTINGS:
                 result = self.state_manager.enhanced_menu.handle_input(event)
@@ -536,7 +616,17 @@ class Game:
         elif self.state_manager.is_paused():
             # Don't process pause input on the same frame we just entered pause
             if not self.just_paused:
+                # Check current state before handling input
+                previous_state = self.state_manager.get_state()
                 self.state_manager.handle_pause_input(self.keys_just_pressed)
+                # Check if we transitioned from pause to menu (quit to main menu)
+                if previous_state == GameState.PAUSED and self.state_manager.get_state() == GameState.MENU:
+                    # End the current match since player quit to main menu
+                    character_name = self.character_manager.current_character
+                    if character_name and self.player and self.player.is_alive():
+                        # Player quit while alive - record the match
+                        final_record = self.score_manager.end_match(character_name, self.game_time)
+                        print(f"Match ended (quit to menu): Score {final_record.score}, Wave {final_record.waves_survived}, Kills {final_record.enemies_killed}")
             else:
                 self.just_paused = False  # Reset for next frame
             
@@ -563,8 +653,9 @@ class Game:
                 # Auto-collect cores near player (no key press needed)
                 collected_cores = self.world_manager.core_manager.try_collect_cores(self.player.pos)
                 
-                # Shooting
-                if mouse_buttons[0]:  # Left mouse button
+                # Shooting (either left mouse button held or special attack triggered)
+                should_fire = mouse_buttons[0] or getattr(self.player, 'fire_special_attack_shot', False)
+                if should_fire:  # Left mouse button or special attack
                     gun_tip = self.player.get_gun_tip_position()
                     
                     # Start continuous fire tracking for minigun (but not during reload)
@@ -587,78 +678,329 @@ class Game:
                         # Handle sword melee attacks
                         if self.player.weapon_type == "Sword":
                             if self.bullet_manager.can_shoot(self.game_time):
-                                # Perform melee slash attack
-                                self.perform_sword_attack(weapon_damage)
-                                self.bullet_manager.last_shot_time = self.game_time
-                                bullet_fired = True
-                        # Handle rocket launcher
-                        elif self.player.weapon_type == "Rocket Launcher":
-                            if self.bullet_manager.can_shoot(self.game_time):
-                                # Fire missile towards the mouse position
-                                target_pos = pg.Vector2(pg.mouse.get_pos())
-                                # Convert screen coordinates to world coordinates by considering camera
-                                target_pos -= self.camera_offset
+                                # Check if special attack - based on current right mouse state and flags
+                                is_special_attack = (getattr(self.player, 'using_special_attack', False) and 
+                                                   getattr(self.player, 'fire_special_attack_shot', False))
                                 
-                                # Create missile
-                                self.missile_manager.fire_missile(
-                                    gun_tip.x, gun_tip.y,
-                                    target_pos.x, target_pos.y,
-                                    damage=weapon_damage
-                                )
+                                if is_special_attack:
+                                    # Perform thrust attack with mystical beam
+                                    self.perform_sword_thrust_attack(weapon_damage)
+                                else:
+                                    # Perform normal melee slash attack
+                                    self.perform_sword_attack(weapon_damage)
                                 
                                 self.bullet_manager.last_shot_time = self.game_time
                                 bullet_fired = True
-                        # Fire multiple pellets if it's a shotgun-type weapon
-                        elif pellet_count > 1 and spread_angle > 0:
-                            # Try to fire the first pellet to check fire rate
-                            if self.bullet_manager.can_shoot(self.game_time):
-                                # Fire multiple pellets with even spread
-                                for i in range(pellet_count):
-                                    # Calculate even spread angle for this pellet
-                                    if pellet_count == 1:
-                                        angle_offset = 0
+                                
+                                # Reset special attack flags after firing - but only if not continuing special attack
+                                if hasattr(self.player, 'using_special_attack'):
+                                    # For Sword, only reset using_special_attack if right mouse is not held
+                                    if self.player.weapon_type == "Sword":
+                                        if not mouse_buttons[2]:  # Right mouse not held
+                                            self.player.using_special_attack = False
                                     else:
-                                        # Distribute pellets evenly across the spread angle
-                                        angle_offset = (i - (pellet_count - 1) / 2) * (2 * spread_angle / (pellet_count - 1))
+                                        self.player.using_special_attack = False
+                                        
+                                if hasattr(self.player, 'fire_special_attack_shot'):
+                                    # For Sword, keep firing if right mouse is still held
+                                    if self.player.weapon_type == "Sword" and mouse_buttons[2]:
+                                        # Keep the flag true for continuous Sword special attack firing
+                                        pass  
+                                    else:
+                                        self.player.fire_special_attack_shot = False
+                        
+                        # Handle grenade launcher (right mouse button for Assault Rifle) - separate from normal firing
+                        grenade_fired = False
+                        if self.player.weapon_type == "Assault Rifle" and weapon_manager.has_grenade_launcher(self.player.weapon_type):
+                            # Use right mouse (index 2) for grenade - single click only, not held
+                            right_mouse_pressed = mouse_buttons[2]
+                            right_mouse_just_pressed = (right_mouse_pressed and 
+                                                      not getattr(self.player, 'right_mouse_was_pressed_grenade', False))
+                            
+                            # Store the current state for next frame
+                            self.player.right_mouse_was_pressed_grenade = right_mouse_pressed
+                            
+                            if right_mouse_just_pressed and self.player.can_fire_grenade():  # Single click only
+                                if self.bullet_manager.can_shoot(self.game_time):
+                                    # Fire grenade towards the mouse position
+                                    mouse_screen_pos = pg.mouse.get_pos()
+                                    target_world_pos = self.screen_to_world_pos(mouse_screen_pos)
                                     
-                                    pellet_angle = self.player.angle + angle_offset
+                                    # Get grenade properties
+                                    grenade_props = weapon_manager.get_grenade_properties(self.player.weapon_type)
                                     
-                                    # Create individual pellet
-                                    self.bullet_manager.bullets.append(
-                                        self.bullet_manager.create_bullet(
-                                            gun_tip.x, gun_tip.y, pellet_angle,
+                                    # Fire grenade using missile system (same as rockets but different appearance)
+                                    self.missile_manager.fire_grenade(
+                                        gun_tip.x, gun_tip.y,
+                                        target_world_pos[0], target_world_pos[1],
+                                        damage=grenade_props.get("damage", 45),
+                                        explosion_radius=150,  # Same as rockets
+                                        speed=grenade_props.get("projectile_speed", 600)
+                                    )
+                                    
+                                    self.player.use_grenade_round()
+                                    self.bullet_manager.last_shot_time = self.game_time
+                                    grenade_fired = True
+                                    
+                                    # Reset special attack flags for Assault Rifle after grenade firing
+                                    if hasattr(self.player, 'fire_special_attack_shot'):
+                                        self.player.fire_special_attack_shot = False
+                                    if hasattr(self.player, 'using_special_attack'):
+                                        self.player.using_special_attack = False
+                                    
+                                    # Add grenade launcher muzzle flash
+                                    self.effects_manager.add_explosion(gun_tip.x, gun_tip.y, (255, 150, 50), small=True)
+                        
+                        # Direct fix for Assault Rifle normal firing
+                        if not grenade_fired and self.player.weapon_type == "Assault Rifle":
+                            # Only fire bullets for left mouse, NOT for special attacks (which use grenade launcher)
+                            is_special_attack_active = getattr(self.player, 'fire_special_attack_shot', False)
+                            
+                            # Only fire bullets if it's NOT a special attack (left mouse only)
+                            if not is_special_attack_active and mouse_buttons[0]:
+                                # Check fire rate timing for assault rifle
+                                if self.bullet_manager.can_shoot(self.game_time):
+                                    # Normal bullet shooting for Assault Rifle (always fire bullets, grenade launcher is separate)
+                                    bullet_color = bullet_props["color"]
+                                    
+                                    bullet_fired = self.bullet_manager.shoot(
+                                        gun_tip.x, gun_tip.y, self.player.angle, self.game_time, 
+                                        damage=weapon_damage,
+                                        speed=bullet_props["speed"],
+                                        size_multiplier=bullet_props["size_multiplier"],
+                                        color=bullet_color,
+                                        penetration=bullet_props.get("penetration", 1),
+                                        shape=bullet_props.get("shape", "standard"),
+                                        range_limit=bullet_props.get("range", 800),
+                                        weapon_type=self.player.weapon_type,
+                                        special_attack=False,  # Assault Rifle bullets are never special attacks
+                                        trail_enabled=False,
+                                        trail_duration=0.0
+                                    )
+                                
+                                    if bullet_fired:
+                                        self.effects_manager.add_assault_rifle_muzzle_flash(
+                                            gun_tip.x, gun_tip.y, self.player.angle
+                                        )
+                                    
+                                    # Use ammo only if bullet was actually fired
+                                    if bullet_fired and hasattr(self.player, 'use_ammo'):
+                                        self.player.use_ammo(self.bullet_manager)
+                        
+                        # Handle normal weapon firing (not grenade launcher)
+                        if not grenade_fired:  # Only fire normal bullets if grenade wasn't fired
+                            # Handle rocket launcher
+                            if self.player.weapon_type == "Rocket Launcher":
+                                if self.bullet_manager.can_shoot(self.game_time):
+                                    # Check if special attack
+                                    is_special_attack = getattr(self.player, 'using_special_attack', False)
+                                    
+                                    # Fire missile towards the mouse position
+                                    mouse_screen_pos = pg.mouse.get_pos()
+                                    # Convert screen coordinates to world coordinates properly
+                                    target_world_pos = self.screen_to_world_pos(mouse_screen_pos)
+                                    
+                                    # Calculate special attack properties
+                                    missile_damage = weapon_damage
+                                    explosion_radius = 150  # Default radius
+                                    
+                                    if is_special_attack:
+                                        # Get special attack properties from weapons.json
+                                        special_config = weapon_manager.get_weapon_property(
+                                            "Rocket Launcher", "special_attack", "damage_multiplier", 1.5
+                                        )
+                                        radius_multiplier = weapon_manager.get_weapon_property(
+                                            "Rocket Launcher", "special_attack", "explosion_radius_multiplier", 2.0
+                                        )
+                                        
+                                        missile_damage = int(weapon_damage * special_config)
+                                        explosion_radius = int(150 * radius_multiplier)
+                                    
+                                    # Create missile (special or normal)
+                                    self.missile_manager.fire_missile(
+                                        gun_tip.x, gun_tip.y,
+                                        target_world_pos[0], target_world_pos[1],
+                                        damage=missile_damage,
+                                        explosion_radius=explosion_radius,
+                                        special_attack=is_special_attack
+                                    )
+                                    
+                                    self.bullet_manager.last_shot_time = self.game_time
+                                    bullet_fired = True
+                                    
+                                    # Reset special attack flags after firing  
+                                    if hasattr(self.player, 'using_special_attack'):
+                                        self.player.using_special_attack = False
+                                    if hasattr(self.player, 'fire_special_attack_shot'):
+                                        self.player.fire_special_attack_shot = False
+                            # Fire multiple pellets if it's a shotgun-type weapon
+                            elif pellet_count > 1 and spread_angle > 0:
+                                # Try to fire the first pellet to check fire rate
+                                if self.bullet_manager.can_shoot(self.game_time):
+                                    # Fire multiple pellets with even spread
+                                    for i in range(pellet_count):
+                                        # Calculate even spread angle for this pellet
+                                        if pellet_count == 1:
+                                            angle_offset = 0
+                                        else:
+                                            # Distribute pellets evenly across the spread angle
+                                            angle_offset = (i - (pellet_count - 1) / 2) * (2 * spread_angle / (pellet_count - 1))
+                                        
+                                        pellet_angle = self.player.angle + angle_offset
+                                        
+                                        # Create individual pellet with special attack color override
+                                        is_special_attack = getattr(self.player, 'using_special_attack', False)
+                                        
+                                        # Use intense bright red for shotgun special attacks
+                                        pellet_color = bullet_props["color"]
+                                        if is_special_attack and self.player.weapon_type == "Shotgun":
+                                            pellet_color = (255, 0, 0)  # Bright intense red for special attack
+                                        
+                                        self.bullet_manager.bullets.append(
+                                            self.bullet_manager.create_bullet(
+                                                gun_tip.x, gun_tip.y, pellet_angle,
+                                                damage=weapon_damage,
+                                                speed=bullet_props["speed"],
+                                                size_multiplier=bullet_props["size_multiplier"],
+                                                color=pellet_color,
+                                                penetration=bullet_props.get("penetration", 1),
+                                                shape=bullet_props.get("shape", "standard"),
+                                                range_limit=bullet_props.get("range", 800),
+                                                weapon_type=self.player.weapon_type,
+                                                special_attack=is_special_attack
+                                            )
+                                        )
+                                
+                                    # Update last shot time after firing all pellets
+                                    self.bullet_manager.last_shot_time = self.game_time
+                                    bullet_fired = True
+                                    
+                                    # Reset special attack flag after firing
+                                    if hasattr(self.player, 'using_special_attack'):
+                                        self.player.using_special_attack = False
+                                    
+                                    # Reset special attack fire trigger
+                                    if hasattr(self.player, 'fire_special_attack_shot'):
+                                        self.player.fire_special_attack_shot = False
+                                    
+                                    # Add spectacular shotgun muzzle flash effect
+                                    self.effects_manager.add_shotgun_muzzle_flash(
+                                        gun_tip.x, gun_tip.y, self.player.angle
+                                    )
+                            else:
+                                # Single bullet weapons (AR, SMG, Sniper, Minigun)
+                                is_special_attack = getattr(self.player, 'using_special_attack', False)
+                                
+                                # Use intense bright red for special attacks
+                                bullet_color = bullet_props["color"]
+                                if is_special_attack:
+                                    bullet_color = (255, 0, 0)  # Bright intense red for special attack
+                                
+                                # Special handling for SMG bouncing bullets
+                                if self.player.weapon_type == "SMG" and is_special_attack:
+                                    # Get SMG special attack configuration
+                                    range_multiplier = weapon_manager.get_weapon_property(
+                                        "SMG", "special_attack", "range_multiplier", 0.5
+                                    )
+                                    max_bounces = weapon_manager.get_weapon_property(
+                                        "SMG", "special_attack", "max_bounces", 1
+                                    )
+                                    bounce_range_mult = weapon_manager.get_weapon_property(
+                                        "SMG", "special_attack", "bounce_range_multiplier", 0.5
+                                    )
+                                    enemy_targeting = weapon_manager.get_weapon_property(
+                                        "SMG", "special_attack", "enemy_targeting", True
+                                    )
+                                    
+                                    # Calculate reduced range and bounce range
+                                    base_range = bullet_props.get("range", 675)
+                                    reduced_range = int(base_range * range_multiplier)  # 50% of 675 = 337.5
+                                    bounce_range = int(reduced_range * bounce_range_mult)  # 50% of reduced = 168.75
+                                    
+                                    # Fire two parallel streams for special attack
+                                    import math
+                                    
+                                    # Both streams aim straight ahead (same angle as player)
+                                    stream1_angle = self.player.angle
+                                    stream2_angle = self.player.angle
+                                    
+                                    # Calculate offset positions perpendicular to the aim direction
+                                    offset_distance = 30  # Distance to spread the streams apart
+                                    perpendicular_angle = self.player.angle + 90  # 90 degrees to the side
+                                    perp_rad = math.radians(perpendicular_angle)
+                                    
+                                    # Get base gun tip position
+                                    base_tip = self.player.get_gun_tip_position()
+                                    
+                                    # Calculate offset positions for each stream (spread perpendicular to aim)
+                                    offset_x = math.cos(perp_rad) * offset_distance
+                                    offset_y = math.sin(perp_rad) * offset_distance
+                                    
+                                    stream1_tip = pg.Vector2(base_tip.x - offset_x, base_tip.y - offset_y)  # Left stream
+                                    stream2_tip = pg.Vector2(base_tip.x + offset_x, base_tip.y + offset_y)  # Right stream
+                                    
+                                    # Fire first stream normally (handles fire rate timing)
+                                    stream1_color = (255, 20, 20) if is_special_attack else bullet_color  # Bright red
+                                    bullet_fired_1 = self.bullet_manager.shoot(
+                                        stream1_tip.x, stream1_tip.y, stream1_angle, self.game_time, 
+                                        damage=weapon_damage,
+                                        speed=bullet_props["speed"],
+                                        size_multiplier=bullet_props["size_multiplier"],
+                                        color=stream1_color,
+                                        penetration=bullet_props.get("penetration", 1),
+                                        shape=bullet_props.get("shape", "standard"),
+                                        range_limit=reduced_range,
+                                        weapon_type=self.player.weapon_type,
+                                        special_attack=is_special_attack,
+                                        bounce_enabled=True,
+                                        max_bounces=max_bounces,
+                                        bounce_range=bounce_range,
+                                        enemy_targeting=enemy_targeting
+                                    )
+                                    
+                                    # Fire second stream directly (bypass fire rate check for simultaneous dual stream)
+                                    bullet_fired_2 = False
+                                    if bullet_fired_1:  # Only fire second stream if first one succeeded
+                                        stream2_color = (255, 100, 0) if is_special_attack else bullet_color  # Orange-red
+                                        bullet2 = self.bullet_manager.create_bullet(
+                                            stream2_tip.x, stream2_tip.y, stream2_angle, 
                                             damage=weapon_damage,
                                             speed=bullet_props["speed"],
                                             size_multiplier=bullet_props["size_multiplier"],
-                                            color=bullet_props["color"],
+                                            color=stream2_color,
+                                            penetration=bullet_props.get("penetration", 1),
+                                            shape=bullet_props.get("shape", "standard"),
+                                            range_limit=reduced_range,
+                                            weapon_type=self.player.weapon_type,
+                                            special_attack=is_special_attack,
+                                            bounce_enabled=True,
+                                            max_bounces=max_bounces,
+                                            bounce_range=bounce_range,
+                                            enemy_targeting=enemy_targeting
+                                        )
+                                        if bullet2:
+                                            self.bullet_manager.bullets.append(bullet2)
+                                            bullet_fired_2 = True
+                                    
+                                    # Both streams fired successfully
+                                    bullet_fired = bullet_fired_1 or bullet_fired_2
+                                else:
+                                    # Normal bullet shooting for non-SMG weapons (other than Assault Rifle which has its own fix)
+                                    if self.player.weapon_type != "Assault Rifle":
+                                        bullet_fired = self.bullet_manager.shoot(
+                                            gun_tip.x, gun_tip.y, self.player.angle, self.game_time, 
+                                            damage=weapon_damage,
+                                            speed=bullet_props["speed"],
+                                            size_multiplier=bullet_props["size_multiplier"],
+                                            color=bullet_color,
                                             penetration=bullet_props.get("penetration", 1),
                                             shape=bullet_props.get("shape", "standard"),
                                             range_limit=bullet_props.get("range", 800),
-                                            weapon_type=self.player.weapon_type
+                                            weapon_type=self.player.weapon_type,
+                                            special_attack=is_special_attack,
+                                            trail_enabled=(self.player.weapon_type == "Sniper" and is_special_attack),
+                                            trail_duration=3.0 if (self.player.weapon_type == "Sniper" and is_special_attack) else 0.0
                                         )
-                                    )
-                                
-                                # Update last shot time after firing all pellets
-                                self.bullet_manager.last_shot_time = self.game_time
-                                bullet_fired = True
-                                
-                                # Add spectacular shotgun muzzle flash effect
-                                self.effects_manager.add_shotgun_muzzle_flash(
-                                    gun_tip.x, gun_tip.y, self.player.angle
-                                )
-                        else:
-                            # Single bullet weapons (AR, SMG, Sniper, Minigun)
-                            bullet_fired = self.bullet_manager.shoot(
-                                gun_tip.x, gun_tip.y, self.player.angle, self.game_time, 
-                                damage=weapon_damage,
-                                speed=bullet_props["speed"],
-                                size_multiplier=bullet_props["size_multiplier"],
-                                color=bullet_props["color"],
-                                penetration=bullet_props.get("penetration", 1),
-                                shape=bullet_props.get("shape", "standard"),
-                                range_limit=bullet_props.get("range", 800),
-                                weapon_type=self.player.weapon_type
-                            )
                             
                             # Add muzzle flash effects for specific weapons
                             if bullet_fired and self.player.weapon_type == "Assault Rifle":
@@ -669,10 +1011,41 @@ class Game:
                                 self.effects_manager.add_smg_muzzle_flash(
                                     gun_tip.x, gun_tip.y, self.player.angle
                                 )
+                            
+                            # Reset special attack flags after firing  
+                            if bullet_fired:
+                                if hasattr(self.player, 'using_special_attack'):
+                                    # For Sword, only reset using_special_attack if right mouse is not held
+                                    if self.player.weapon_type == "Sword":
+                                        if not mouse_buttons[2]:  # Right mouse not held
+                                            self.player.using_special_attack = False
+                                    else:
+                                        self.player.using_special_attack = False
+                                        
+                                # Only reset fire_special_attack_shot if not SMG/Sword with right mouse held
+                                if hasattr(self.player, 'fire_special_attack_shot'):
+                                    # For SMG and Sword, keep firing if right mouse is still held
+                                    if self.player.weapon_type in ["SMG", "Sword"] and mouse_buttons[2]:
+                                        # Keep the flag true for continuous SMG/Sword special attack firing
+                                        pass  
+                                    else:
+                                        self.player.fire_special_attack_shot = False
                         
-                        # Only use ammo if bullet was actually fired (except for melee weapons)
-                        if bullet_fired and hasattr(self.player, 'use_ammo') and self.player.weapon_type != "Sword":
-                            self.player.use_ammo(self.bullet_manager)
+                        # Only use ammo if bullet was actually fired (except for melee weapons, grenades, and assault rifle)
+                        if bullet_fired and not grenade_fired and hasattr(self.player, 'use_ammo') and self.player.weapon_type not in ["Sword", "Assault Rifle"]:
+                            # Special ammo handling for different weapons
+                            if self.player.weapon_type == "SMG" and is_special_attack:
+                                # Double ammo consumption for SMG special attacks (two streams)
+                                self.player.use_ammo(self.bullet_manager)  # First shot
+                                self.player.use_ammo(self.bullet_manager)  # Second shot
+                            elif self.player.weapon_type == "Sniper":
+                                # Only use ammo for special attacks, normal sniper shots are free
+                                if is_special_attack:
+                                    self.player.use_ammo(self.bullet_manager)  # Special attack uses ammo
+                                # Normal sniper shots don't use ammo
+                            else:
+                                # All other weapons use ammo normally
+                                self.player.use_ammo(self.bullet_manager)  # Normal single shot
                 else:
                     # Fire button not pressed - stop continuous fire for minigun
                     if hasattr(self, 'bullet_manager') and hasattr(self, 'player'):
@@ -693,11 +1066,32 @@ class Game:
         # Create visual slash effect that follows player AND deals damage
         self.create_slash_effect(sword_range, slash_arc, damage)
         
-        # Add magical sword activation effect
+        # Add mystical sparkles around the slash
         gun_tip = self.player.get_gun_tip_position()
-        self.effects_manager.add_sword_activation_flash(gun_tip.x, gun_tip.y, self.player.angle)
+        self.effects_manager.add_mystical_slash_sparkles(gun_tip.x, gun_tip.y, self.player.angle, sword_range)
         
         # No instant damage - the slash effect itself will handle damage continuously
+    
+    def perform_sword_thrust_attack(self, damage):
+        """Perform a special sword thrust attack with mystical beam effect."""
+        import math
+        
+        # Get special attack properties from weapon manager
+        thrust_range = weapon_manager.get_weapon_property(self.player.weapon_type, 'special_attack', 'range', 500)
+        damage_multiplier = weapon_manager.get_weapon_property(self.player.weapon_type, 'special_attack', 'damage_multiplier', 1.3)
+        beam_width = weapon_manager.get_weapon_property(self.player.weapon_type, 'special_attack', 'beam_width', 15)
+        beam_duration = weapon_manager.get_weapon_property(self.player.weapon_type, 'special_attack', 'beam_duration', 0.4)
+        beam_color = weapon_manager.get_weapon_property(self.player.weapon_type, 'special_attack', 'beam_color', [100, 255, 200])
+        
+        # Calculate enhanced damage
+        thrust_damage = damage * damage_multiplier
+        
+        # Create mystical beam effect
+        self.create_mystical_beam_effect(thrust_range, beam_width, beam_duration, beam_color, thrust_damage)
+        
+        # Add mystical sparkles around the thrust
+        gun_tip = self.player.get_gun_tip_position()
+        self.effects_manager.add_mystical_thrust_sparkles(gun_tip.x, gun_tip.y, self.player.angle, thrust_range)
     
     def check_slash_damage(self):
         """Check for continuous damage from active sword slash effects."""
@@ -722,9 +1116,9 @@ class Game:
             enemy.take_damage(damage)
             enemies_hit.append(enemy)
             
-            # Add BURST charge to player when hitting enemy
-            if hasattr(self.player, 'add_burst_charge'):
-                self.player.add_burst_charge()
+            # Add BURST points to player when hitting enemy
+            if hasattr(self.player, 'add_burst_points'):
+                self.player.add_burst_points(1)
             
             # Check if enemy died and remove
             if not enemy.is_alive():
@@ -733,11 +1127,45 @@ class Game:
                 self.effects_manager.add_sword_impact_effect(enemy.pos.x, enemy.pos.y)  # Sword-specific death effect
                 self.enemy_manager.remove_enemy(enemy)
                 kills += 1
-                self.score += 100
+                self.score_manager.add_kill_score(10)  # Use score manager instead of direct score tracking
         
         # Add screen shake for sword impacts
         if enemies_hit:
             self.add_camera_shake(0.4, 0.2)
+    
+    def check_beam_damage(self):
+        """Check for continuous damage from active mystical beam effects."""
+        # Get damage events from all active beam effects
+        damage_events = self.effects_manager.check_beam_damage(self.enemy_manager.enemies)
+        
+        kills = 0
+        enemies_hit = []
+        
+        # Process each damage event
+        for event in damage_events:
+            enemy = event['enemy']
+            damage = event['damage']
+            
+            # Deal damage to the enemy
+            enemy.take_damage(damage)
+            enemies_hit.append(enemy)
+            
+            # Add BURST points to player when hitting enemy
+            if hasattr(self.player, 'add_burst_points'):
+                self.player.add_burst_points(1)
+            
+            # Check if enemy died and remove
+            if not enemy.is_alive():
+                # Add explosion/death particles at enemy position BEFORE removal
+                self.effects_manager.add_explosion(enemy.pos.x, enemy.pos.y, (255, 100, 100))  # Purple-ish explosion
+                self.effects_manager.add_sword_impact_effect(enemy.pos.x, enemy.pos.y)  # Sword-specific death effect
+                self.enemy_manager.remove_enemy(enemy)
+                kills += 1
+                self.score_manager.add_kill_score(10)  # Use score manager instead of direct score tracking
+        
+        # Add screen shake for beam impacts
+        if enemies_hit:
+            self.add_camera_shake(0.3, 0.15)
     
     def check_missile_visual_damage(self):
         """Check for continuous damage from missile bodies and explosions based on visual effects."""
@@ -762,9 +1190,9 @@ class Game:
             enemy.take_damage(damage)
             enemies_hit.append(enemy)
             
-            # Add BURST charge to player when hitting enemy
-            if hasattr(self.player, 'add_burst_charge'):
-                self.player.add_burst_charge()
+            # Add BURST points to player when hitting enemy
+            if hasattr(self.player, 'add_burst_points'):
+                self.player.add_burst_points(1)
             
             # Check if enemy died and remove
             if not enemy.is_alive():
@@ -776,12 +1204,76 @@ class Game:
                 
                 self.enemy_manager.remove_enemy(enemy)
                 kills += 1
-                self.score += 100
+                self.score_manager.add_kill_score(10)  # Use score manager instead of direct score tracking
         
         # Add screen shake for missile impacts
         if enemies_hit:
             impact_intensity = 0.6 if any(event['type'] == 'explosion' for event in damage_events) else 0.3
             self.add_camera_shake(impact_intensity, 0.3)
+    
+    def check_ground_fire_damage(self):
+        """Check for damage from persistent ground fire effects."""
+        if not self.missile_manager.ground_fires:
+            return
+        
+        # Get damage events from all active ground fires
+        damage_events = self.missile_manager.check_ground_fire_damage(
+            self.enemy_manager.enemies, self.game_time
+        )
+        
+        kills = 0
+        enemies_hit = []
+        
+        # Process each damage event
+        for event in damage_events:
+            enemy = event['enemy']
+            damage = event['damage']
+            damage_type = event['type']
+            
+            # Deal damage to the enemy
+            enemy.take_damage(damage)
+            enemies_hit.append(enemy)
+            
+            # Add fire damage effect at enemy position
+            self.effects_manager.add_explosion(enemy.pos.x, enemy.pos.y, (255, 120, 0))
+            
+            # Check if enemy died from ground fire
+            if not enemy.is_alive():
+                self.enemy_manager.remove_enemy(enemy)
+                kills += 1
+                self.score_manager.add_kill_score(10)  # Use score manager instead of direct score tracking
+                
+                # Add death explosion
+                self.effects_manager.add_explosion(enemy.pos.x, enemy.pos.y, (255, 100, 100))
+    
+    def check_burning_trail_damage(self):
+        """Check for damage from burning trail effects from sniper special attacks."""
+        if not self.bullet_manager.burning_trails:
+            return
+        
+        # Get damage events from all active burning trails
+        damage_events = self.bullet_manager.check_burning_trail_damage(
+            self.enemy_manager.enemies, self.game_time
+        )
+        
+        kills = 0
+        
+        # Process each damage event
+        for enemy, damage in damage_events:
+            # Deal damage to the enemy
+            enemy.take_damage(damage)
+            
+            # Add burning damage effect at enemy position (orange fire)
+            self.effects_manager.add_explosion(enemy.pos.x, enemy.pos.y, (255, 120, 30))
+            
+            # Check if enemy died from burning trail
+            if not enemy.is_alive():
+                self.enemy_manager.remove_enemy(enemy)
+                kills += 1
+                self.score_manager.add_kill_score(10)  # Use score manager instead of direct score tracking
+                
+                # Add death explosion
+                self.effects_manager.add_explosion(enemy.pos.x, enemy.pos.y, (255, 100, 100))
     
     def create_slash_effect(self, sword_range, slash_arc, damage):
         """Create a visual slash effect for the sword attack."""
@@ -792,6 +1284,90 @@ class Game:
             sword_range,
             damage  # Pass damage value to the slash effect
         )
+    
+    def create_mystical_beam_effect(self, beam_range, beam_width, beam_duration, beam_color, damage):
+        """Create a mystical beam effect for sword thrust attack."""
+        import math
+        
+        # Get player position and direction
+        gun_tip = self.player.get_gun_tip_position()
+        angle_rad = math.radians(self.player.angle)
+        
+        # Calculate beam end position
+        end_x = gun_tip.x + beam_range * math.cos(angle_rad)
+        end_y = gun_tip.y + beam_range * math.sin(angle_rad)
+        
+        # Add the mystical beam visual effect - pass player reference for following
+        self.effects_manager.add_mystical_beam(
+            self.player,  # Pass player reference instead of coordinates
+            0.0,          # Relative angle (0 = forward direction)
+            beam_range, beam_width, beam_duration, beam_color, damage
+        )
+        
+        # No instant damage - the beam effect will handle damage continuously like the slash effect
+    
+    def check_beam_collision(self, start_x, start_y, end_x, end_y, beam_width, damage):
+        """Check for enemy collisions along the mystical beam path."""
+        import math
+        
+        # Calculate beam direction and length
+        beam_dx = end_x - start_x
+        beam_dy = end_y - start_y
+        beam_length = math.sqrt(beam_dx**2 + beam_dy**2)
+        
+        if beam_length == 0:
+            return
+        
+        # Normalize beam direction
+        beam_dx /= beam_length
+        beam_dy /= beam_length
+        
+        kills = 0
+        enemies_hit = []
+        
+        # Check each enemy for collision with the beam
+        for enemy in self.enemy_manager.get_enemies():
+            # Calculate distance from enemy to beam line
+            to_enemy_x = enemy.pos.x - start_x
+            to_enemy_y = enemy.pos.y - start_y
+            
+            # Project enemy position onto beam line
+            projection = to_enemy_x * beam_dx + to_enemy_y * beam_dy
+            
+            # Check if projection is within beam length
+            if 0 <= projection <= beam_length:
+                # Calculate perpendicular distance
+                closest_x = start_x + projection * beam_dx
+                closest_y = start_y + projection * beam_dy
+                
+                distance = math.sqrt((enemy.pos.x - closest_x)**2 + (enemy.pos.y - closest_y)**2)
+                
+                # Check if enemy is within beam width and hasn't been hit recently
+                if distance <= (beam_width / 2 + enemy.size) and enemy not in enemies_hit:
+                    # Deal damage to the enemy
+                    enemy.take_damage(damage)
+                    enemies_hit.append(enemy)
+                    
+                    # Add BURST points to player when hitting enemy
+                    if hasattr(self.player, 'add_burst_points'):
+                        self.player.add_burst_points(1)
+                    
+                    # Add mystical impact effect
+                    self.effects_manager.add_mystical_impact_effect(enemy.pos.x, enemy.pos.y)
+                    
+                    # Check if enemy died and remove
+                    if not enemy.is_alive():
+                        # Add explosion/death particles at enemy position BEFORE removal
+                        self.effects_manager.add_explosion(enemy.pos.x, enemy.pos.y, (100, 255, 200))  # Mystical green explosion
+                        self.effects_manager.add_sword_impact_effect(enemy.pos.x, enemy.pos.y)
+                        self.enemy_manager.remove_enemy(enemy)
+                        kills += 1
+                        self.score_manager.add_kill_score(10)  # Use score manager instead of direct score tracking
+        
+        # Add screen shake for mystical beam impacts
+        if enemies_hit:
+            screen_shake_intensity = min(5 + len(enemies_hit) * 2, 15)
+            self.effects_manager.add_screen_shake(screen_shake_intensity, 0.3)
     
     def check_missile_enemy_collisions(self):
         """Check for missile collisions with enemies and handle explosions."""
@@ -811,22 +1387,23 @@ class Game:
             elif missile.state == MissileState.EXPLODING:
                 # Check AOE damage during explosion
                 explosion_radius = 150  # Match the radius from weapons.json
+                explosion_pos = (missile.pos.x, missile.pos.y)  # Store missile position for explosion effect
+                
                 for enemy in self.enemy_manager.get_enemies():
                     distance = (missile.pos - enemy.pos).length()
                     if distance <= explosion_radius:
-                        # Store enemy position before applying damage
-                        enemy_pos = (enemy.pos.x, enemy.pos.y)
                         was_alive = enemy.is_alive()
                         
                         # Apply explosion damage
                         enemy.take_damage(missile.damage)
                         if was_alive and not enemy.is_alive():
                             kills += 1
-                            # Add explosion effect for each enemy killed
-                            self.effects_manager.add_explosion(enemy_pos[0], enemy_pos[1])
+                
+                # Add explosion effect at missile position (not enemy position)
+                self.effects_manager.add_explosion(explosion_pos[0], explosion_pos[1])
                 
                 # Add screen shake for explosion
-                self.add_camera_shake(0.8, 0.4)
+                self.add_camera_shake(0.4, 0.4)
                 
         return kills
     
@@ -885,8 +1462,24 @@ class Game:
             keys_pressed = pg.key.get_pressed()
             self.world_manager.update(self.dt, self.player.pos, keys_pressed)
             
-            # Update core system (replaces resource system) - pass player position for auto pickup
-            self.world_manager.core_manager.update(self.dt, self.player.pos)
+            # Check for objective completion and end match successfully
+            if self.world_manager.is_objective_complete():
+                # End the match and record it in the leaderboard
+                character_name = self.character_manager.current_character
+                if character_name and self.player.is_alive():
+                    final_record = self.score_manager.end_match(character_name, self.game_time)
+                    print(f"Match completed successfully! Final record: Score {final_record.score}, Wave {final_record.waves_survived}, Kills {final_record.enemies_killed}")
+                    
+                    # Set game over stats for victory screen
+                    self.state_manager.set_game_over_stats(
+                        self.score_manager.current_match_score, 
+                        self.enemy_manager.get_wave(), 
+                        self.enemy_manager.get_kills()
+                    )
+                    self.state_manager.change_state(GameState.GAME_OVER)
+            
+            # Update core system (replaces resource system) - pass player position and score manager for auto pickup
+            self.world_manager.core_manager.update(self.dt, self.player.pos, self.score_manager)
             
             # Update player
             self.player.update(self.dt, self.bullet_manager, self.world_manager)
@@ -903,6 +1496,8 @@ class Game:
             
             # Update managers
             self.bullet_manager.update(self.dt, self.game_time, self.world_manager)
+            
+            # Missiles handle their own explosions automatically
             self.missile_manager.update(self.dt, self.enemy_manager.get_enemies())
             self.enemy_manager.update(self.dt, self.player.pos, self.game_time, self.bullet_manager,
                                      self.base_zoom, self.screen_width, self.screen_height)
@@ -934,15 +1529,24 @@ class Game:
             # Check for continuous sword damage from active slash effects
             self.check_slash_damage()
             
+            # Check for continuous beam damage from active mystical beam effects
+            self.check_beam_damage()
+            
             # Check for continuous missile damage from visual effects (body hits and explosions)
             self.check_missile_visual_damage()
+            
+            # Check for ground fire damage from special missile explosions
+            self.check_ground_fire_damage()
+            
+            # Check for burning trail damage from special sniper attacks
+            self.check_burning_trail_damage()
             
             # Update game timer
             self.game_time += self.dt
             
             # Handle collisions
             kills = self.collision_manager.check_bullet_enemy_collisions(
-                self.bullet_manager, self.enemy_manager, self.player, self.effects_manager)
+                self.bullet_manager, self.enemy_manager, self.player, self.effects_manager, self.world_manager)
             
             # Check bullet-chest collisions
             bullets_to_remove = []
@@ -964,8 +1568,11 @@ class Game:
                 whip_kills = self.check_whip_damage()
                 kills += whip_kills
             
+            # Add score for kills (10 points per enemy)
             if kills > 0:
-                self.score += kills * 100
+                # Add kills to score manager instead of direct score tracking
+                for _ in range(kills):
+                    self.score_manager.add_kill_score(10)
             
             # Check player-enemy collisions
             player_hit = self.collision_manager.check_player_enemy_collisions(
@@ -980,13 +1587,18 @@ class Game:
                 self.add_camera_shake(15.0, 0.4)  # Stronger shake for player hit
                 if hasattr(self.player, 'add_hit_flash'):
                     self.player.add_hit_flash()
-                self.effects_manager.add_hit_effect(self.player.pos.x, self.player.pos.y, 
-                                                  (255, 100, 100))
+                self.effects_manager.add_hit_effect(self.player.pos.x, self.player.pos.y, 0)
             
             # Check game over
             if not self.player.is_alive():
+                # End the match and record it in the leaderboard
+                character_name = self.character_manager.current_character
+                if character_name:
+                    final_record = self.score_manager.end_match(character_name, self.game_time)
+                    print(f"Match ended! Final record: Score {final_record.score}, Wave {final_record.waves_survived}, Kills {final_record.enemies_killed}")
+                
                 self.state_manager.set_game_over_stats(
-                    self.score, 
+                    self.score_manager.current_match_score, 
                     self.enemy_manager.get_wave(), 
                     self.enemy_manager.get_kills()
                 )
@@ -1159,7 +1771,7 @@ class Game:
     def render_game_ui(self):
         """Render game UI elements."""
         # Score
-        score_text = self.font.render(f"Score: {self.score}", True, (255, 255, 255))
+        score_text = self.font.render(f"Score: {self.score_manager.current_match_score}", True, (255, 255, 255))
         self.screen.blit(score_text, (30, 30))
         
         # Wave
@@ -1168,37 +1780,39 @@ class Game:
         
         # World information (if player exists)
         if self.player:
-            # Distance from base
-            distance = self.world_manager.get_distance_from_center(self.player.pos.x, self.player.pos.y)
-            distance_text = self.small_font.render(f"Distance from Base: {int(distance)}m", True, (255, 255, 255))
-            self.screen.blit(distance_text, (30, 130))
-            
-            # Current wave information
+            # Wave information with survival mode details
             wave_text = self.small_font.render(f"Wave: {self.enemy_manager.wave}", True, (255, 255, 255))
-            self.screen.blit(wave_text, (30, 160))
+            self.screen.blit(wave_text, (30, 130))
             
-            # Use wave-based danger level
-            wave_danger_level = min(5, self.enemy_manager.wave)
-            danger_color = (255, min(255, wave_danger_level * 50), 0)
-            danger_text = self.small_font.render(f"Wave Danger: {wave_danger_level}", True, danger_color)
-            self.screen.blit(danger_text, (30, 190))
+            # Wave progress bar
+            wave_progress = self.enemy_manager.get_wave_progress()
+            time_to_next = self.enemy_manager.get_time_to_next_wave()
             
-            # Enemy scaling info
-            wave_multiplier = 1.0 + (wave_danger_level - 1) * 0.25  # Match enemy scaling
-            enemy_count = self.enemy_manager.get_enemy_count()
+            # Progress bar background
+            progress_bar_rect = pg.Rect(30, 150, 200, 10)
+            pg.draw.rect(self.screen, (50, 50, 50), progress_bar_rect)
             
-            # Distance-based scaling info
-            distance_from_center = self.player.pos.distance_to(pg.Vector2(0, 0))
-            distance_normalized = min(distance_from_center / 3000.0, 1.0)  # Updated for smaller world
-            distance_enemy_multiplier = 1.0 + 4.0 * (distance_normalized ** 1.5)  # Match enemy spawn formula
+            # Progress bar fill
+            progress_width = int(200 * wave_progress)
+            if progress_width > 0:
+                progress_fill_rect = pg.Rect(30, 150, progress_width, 10)
+                progress_color = (255, 100, 100) if time_to_next < 5 else (100, 255, 100)
+                pg.draw.rect(self.screen, progress_color, progress_fill_rect)
             
-            scaling_text = self.small_font.render(f"Enemies: {enemy_count} | Max: {int(15 * distance_enemy_multiplier)}", True, (150, 200, 255))
-            self.screen.blit(scaling_text, (30, 210))
+            # Wave timer text
+            timer_text = self.small_font.render(f"Next wave: {time_to_next:.1f}s", True, (255, 255, 255))
+            self.screen.blit(timer_text, (240, 145))
+            
+            # Enemy counts
+            current_enemies = self.enemy_manager.get_enemy_count()
+            target_enemies = getattr(self.enemy_manager, 'target_enemies_this_wave', 0)
+            enemy_text = self.small_font.render(f"Enemies: {current_enemies}/{target_enemies}", True, (255, 255, 255))
+            self.screen.blit(enemy_text, (30, 170))
                 
         # Rapture Cores display (replaces resource inventory)
         if self.world_manager and hasattr(self.world_manager, 'core_manager'):
             from src.core_system import CORE_INFO
-            y_pos = 250  # Moved down to make room for enemy scaling info
+            y_pos = 160  # Moved up since we removed other UI elements
             
             # Core count display
             core_count = self.world_manager.core_manager.get_player_cores()
@@ -1216,10 +1830,6 @@ class Game:
             obj_color = (0, 255, 0) if self.world_manager.is_objective_complete() else (255, 255, 0)
             obj_display = self.small_font.render(f"Objective: {objective_text}", True, obj_color)
             self.screen.blit(obj_display, (30, y_pos + 25))
-            
-            # Collection hint
-            hint_text = self.small_font.render("Cores auto-collect when near player", True, (150, 150, 150))
-            self.screen.blit(hint_text, (30, y_pos + 50))
         
         # Camera zoom level
         zoom_text = self.small_font.render(f"Zoom: {self.base_zoom:.2f}x (±/-)", True, (200, 200, 200))

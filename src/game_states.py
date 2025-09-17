@@ -28,12 +28,13 @@ class StateManager:
         self.screen = screen
         self.font = font
         self.small_font = small_font
-        self.current_state = GameState.WELCOME  # Start with welcome screen
+        self.current_state = GameState.MENU  # Start with main menu
         self.previous_state = None
         
         # Initialize enhanced menu system
         self.enhanced_menu = EnhancedMenuSystem(screen.get_width(), screen.get_height())
-        self.enhanced_menu.start_welcome_music()  # Start welcome music
+        # Start main menu music since we're starting with the main menu
+        self.enhanced_menu.start_main_menu_music()
         
         # Menu selection (legacy for old menu rendering)
         self.menu_selection = 0
@@ -88,10 +89,13 @@ class StateManager:
         """Handle input for game over state. Returns True if should continue."""
         if (pg.K_RETURN in keys_just_pressed or pg.K_SPACE in keys_just_pressed or
             pg.K_r in keys_just_pressed):
-            self.change_state(GameState.MENU)
+            # Quick restart - go directly to character select for survival mode
+            self.change_state(GameState.CHARACTER_SELECT)
             return True
         elif pg.K_ESCAPE in keys_just_pressed:
-            return False
+            # Return to main menu
+            self.change_state(GameState.MENU)
+            return True
         
         return True
     
@@ -126,11 +130,18 @@ class StateManager:
             self.menu_selection = 0
         elif new_state == GameState.PAUSED:
             self.pause_selection = 0
+        elif new_state == GameState.CHARACTER_SELECT:
+            # Start character select music when entering character selection
+            self.enhanced_menu.start_character_select_music()
             
         # Update enhanced menu state
         if new_state == GameState.WELCOME:
             self.enhanced_menu.set_state(MenuState.WELCOME)
+            self.enhanced_menu.set_came_from_paused_game(False)
         elif new_state == GameState.MENU:
+            # Set whether we came from a paused game
+            came_from_paused = (self.previous_state == GameState.PAUSED)
+            self.enhanced_menu.set_came_from_paused_game(came_from_paused)
             self.enhanced_menu.set_state(MenuState.MAIN)
         elif new_state == GameState.SETTINGS:
             # Preserve music if coming from paused game, otherwise use default music
@@ -210,7 +221,7 @@ class StateManager:
         self.screen.blit(nav_text, nav_rect)
     
     def render_game_over(self):
-        """Render the game over screen."""
+        """Render the survival mode game over screen."""
         # Semi-transparent overlay
         overlay = pg.Surface((1920, 1080))
         overlay.set_alpha(180)
@@ -219,31 +230,66 @@ class StateManager:
         
         # Game Over text (larger)
         game_over_font = pg.font.Font(None, 96)
-        game_over_text = game_over_font.render("GAME OVER", True, (255, 100, 100))
-        game_over_rect = game_over_text.get_rect(center=(960, 400))
+        game_over_text = game_over_font.render("SURVIVAL ENDED", True, (255, 100, 100))
+        game_over_rect = game_over_text.get_rect(center=(960, 350))
         self.screen.blit(game_over_text, game_over_rect)
         
-        # Final stats (larger)
+        # Survival results subtitle
+        subtitle_font = pg.font.Font(None, 48)
+        subtitle_text = subtitle_font.render("Final Results", True, (200, 200, 255))
+        subtitle_rect = subtitle_text.get_rect(center=(960, 420))
+        self.screen.blit(subtitle_text, subtitle_rect)
+        
+        # Final stats (organized for survival mode)
         stats_font = pg.font.Font(None, 56)
+        
+        # Calculate survival time (assuming 30 seconds per wave)
+        survival_time_seconds = (self.final_wave - 1) * 30
+        survival_minutes = survival_time_seconds // 60
+        survival_seconds = survival_time_seconds % 60
+        
         stats = [
-            f"Final Score: {self.final_score}",
-            f"Wave Reached: {self.final_wave}",
-            f"Enemies Defeated: {self.final_kills}"
+            f"Score: {self.final_score} points",
+            f"Waves Survived: {self.final_wave}",
+            f"Survival Time: {survival_minutes}m {survival_seconds}s",
+            f"Enemies Killed: {self.final_kills}"
         ]
         
         for i, stat in enumerate(stats):
             stat_text = stats_font.render(stat, True, (255, 255, 255))
-            stat_rect = stat_text.get_rect(center=(960, 520 + i * 70))
+            stat_rect = stat_text.get_rect(center=(960, 500 + i * 60))
             self.screen.blit(stat_text, stat_rect)
+        
+        # Performance rating
+        rating_font = pg.font.Font(None, 40)
+        if self.final_wave >= 10:
+            rating = "LEGENDARY SURVIVOR!"
+            rating_color = (255, 215, 0)  # Gold
+        elif self.final_wave >= 7:
+            rating = "Elite Warrior"
+            rating_color = (255, 100, 255)  # Purple
+        elif self.final_wave >= 5:
+            rating = "Skilled Fighter"
+            rating_color = (100, 255, 100)  # Green
+        elif self.final_wave >= 3:
+            rating = "Decent Survivor"
+            rating_color = (100, 200, 255)  # Blue
+        else:
+            rating = "Keep Training"
+            rating_color = (255, 200, 100)  # Orange
+            
+        rating_text = rating_font.render(rating, True, rating_color)
+        rating_rect = rating_text.get_rect(center=(960, 750))
+        self.screen.blit(rating_text, rating_rect)
         
         # Restart prompt (larger)
         prompt_font = pg.font.Font(None, 40)
-        restart_text = prompt_font.render("Press ENTER or SPACE to return to menu", True, (200, 200, 200))
-        restart_rect = restart_text.get_rect(center=(960, 800))
+        restart_text = prompt_font.render("Press ENTER or SPACE to play again", True, (200, 255, 200))
+        restart_rect = restart_text.get_rect(center=(960, 820))
         self.screen.blit(restart_text, restart_rect)
         
-        quit_text = prompt_font.render("Press ESC to quit", True, (150, 150, 150))
-        quit_rect = quit_text.get_rect(center=(960, 850))
+        quit_text = prompt_font.render("Press ESC to return to main menu", True, (200, 200, 200))
+        quit_rect = quit_text.get_rect(center=(960, 860))
         self.screen.blit(quit_text, quit_rect)
     
     def render_pause(self):

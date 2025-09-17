@@ -95,6 +95,23 @@ class WeaponManager:
     def get_spread_angle(self, weapon_type: str) -> float:
         """Get spread angle for shotgun-type weapons."""
         return self.get_weapon_property(weapon_type, 'special_mechanics', 'spread_angle', 0.0)
+    
+    def has_grenade_launcher(self, weapon_type: str) -> bool:
+        """Check if weapon has a grenade launcher attachment."""
+        grenade_config = self.get_weapon_property(weapon_type, 'special_mechanics', 'grenade_launcher', {})
+        return grenade_config.get('enabled', False)
+    
+    def get_grenade_rounds(self, weapon_type: str) -> int:
+        """Get maximum grenade rounds for weapon."""
+        return self.get_weapon_property(weapon_type, 'ammo', 'grenade_rounds', 0)
+    
+    def get_grenade_reload_time(self, weapon_type: str) -> float:
+        """Get grenade reload time."""
+        return self.get_weapon_property(weapon_type, 'ammo', 'grenade_reload_time', 2.0)
+    
+    def get_grenade_properties(self, weapon_type: str) -> Dict[str, Any]:
+        """Get grenade launcher properties."""
+        return self.get_weapon_property(weapon_type, 'special_mechanics', 'grenade_launcher', {})
 
 # Global weapon manager instance
 weapon_manager = WeaponManager()
