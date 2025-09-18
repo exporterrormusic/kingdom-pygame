@@ -6,9 +6,9 @@ Handles all collision detection and response between game objects.
 import pygame as pg
 import math
 from typing import List, Tuple
-from src.player import Player
-from src.bullet import Bullet, BulletManager
-from src.enemy import Enemy, EnemyManager
+from src.entities.player import Player
+from src.entities.bullet import Bullet, BulletManager
+from src.entities.enemy import Enemy, EnemyManager
 
 class CollisionManager:
     """Handles all collision detection in the game."""
@@ -30,7 +30,7 @@ class CollisionManager:
         
         for bullet in bullet_manager.get_bullets():
             # Skip enemy bullets - they shouldn't hit enemies (friendly fire)
-            from src.bullet import BulletType
+            from src.entities.bullet import BulletType
             if bullet.type == BulletType.ENEMY_LASER:
                 continue  # Enemy bullets don't hurt enemies
                 
@@ -328,7 +328,7 @@ class CollisionManager:
         Check collisions between enemy bullets and player.
         Returns True if player took damage.
         """
-        from src.bullet import BulletType
+        from src.entities.bullet import BulletType
         bullets_to_remove = []
         player_took_damage = False
         

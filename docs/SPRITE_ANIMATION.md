@@ -42,7 +42,7 @@ player = AnimatedPlayer(x=400, y=300)  # No sprite_sheet_path
 ```
 
 ### **3. Standalone Animated Sprites**
-```python
+```pythonww
 from src.sprite_animation import create_animated_sprite
 
 # For NPCs, enemies, etc.

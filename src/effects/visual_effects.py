@@ -8,6 +8,8 @@ import math
 from typing import Tuple
 from .effects import (ComicDashLine, ParticleEffect, 
                       EnhancedExplosionEffect, MysticalBeamEffect)
+from .base_weapon_effects import BaseWeaponEffectsManager, WeaponImpactEffectsManager
+from .base_explosion_system import ExplosionManager
 
 
 class VisualEffectsSystem:
@@ -231,6 +233,13 @@ class EffectsManager:
     def __init__(self):
         """Initialize the effects manager."""
         self.effects = []
+        
+        # Initialize consolidated weapon effects systems
+        self.weapon_effects = BaseWeaponEffectsManager()
+        self.impact_effects = WeaponImpactEffectsManager()
+        
+        # Initialize consolidated explosion system
+        self.explosion_manager = ExplosionManager()
     
     def add_effect(self, effect):
         """Add a new effect to the manager."""
@@ -240,6 +249,13 @@ class EffectsManager:
         """Update all active effects."""
         # Use a list comprehension for efficient removal of dead effects
         self.effects = [effect for effect in self.effects if not self._update_effect(effect, dt, player_pos)]
+        
+        # Update consolidated weapon effects
+        self.weapon_effects.update(dt)
+        self.impact_effects.update(dt)
+        
+        # Update consolidated explosion system
+        self.explosion_manager.update(dt)
 
     def _update_effect(self, effect, dt: float, player_pos: pg.Vector2) -> bool:
         """Helper to update a single effect and handle different update signatures."""
@@ -256,6 +272,14 @@ class EffectsManager:
         """Render all active effects."""
         for effect in self.effects:
             effect.render(screen, offset)
+        
+        # Render consolidated weapon effects
+        self.weapon_effects.render_muzzle_flashes(screen, offset)
+        self.weapon_effects.render_shell_casings(screen, offset)
+        self.impact_effects.render(screen, offset)
+        
+        # Render consolidated explosion system
+        self.explosion_manager.render(screen, offset)
     
     def clear_effects(self):
         """Remove all active effects."""
@@ -374,20 +398,35 @@ class EffectsManager:
     def add_explosion(self, x: float, y: float, color: Tuple[int, int, int] = (255, 150, 0), small: bool = False):
         """Add a generic explosion effect."""
         if small:
+            # Use new consolidated explosion system
+            self.explosion_manager.create_simple_explosion(x, y, "small", color, particle_count=8, speed=150)
+            # Keep legacy for compatibility
             self.add_enhanced_explosion(x, y, "bullet_impact", color)
         else:
+            # Use new consolidated explosion system  
+            self.explosion_manager.create_simple_explosion(x, y, "basic", color, particle_count=15, speed=200)
+            # Keep legacy for compatibility
             self.add_enhanced_explosion(x, y, "normal", color)
     
     def add_assault_rifle_muzzle_flash(self, x: float, y: float, angle: float):
         """Add muzzle flash for assault rifle."""
+        # Use consolidated weapon effects system
+        self.weapon_effects.create_muzzle_flash(x, y, angle, "Assault Rifle")
+        # Also keep legacy explosion effect for compatibility
         self.add_enhanced_explosion(x, y, "muzzle_flash", (255, 220, 180), angle, 45)
     
     def add_shotgun_muzzle_flash(self, x: float, y: float, angle: float):
         """Add muzzle flash for shotgun."""
+        # Use consolidated weapon effects system
+        self.weapon_effects.create_muzzle_flash(x, y, angle, "Shotgun")
+        # Also keep legacy explosion effect for compatibility  
         self.add_enhanced_explosion(x, y, "shotgun_blast", (255, 200, 100), angle, 35)
     
     def add_smg_muzzle_flash(self, x: float, y: float, angle: float):
         """Add muzzle flash for SMG."""
+        # Use consolidated weapon effects system
+        self.weapon_effects.create_muzzle_flash(x, y, angle, "SMG")
+        # Also keep legacy explosion effect for compatibility
         self.add_enhanced_explosion(x, y, "muzzle_flash", (200, 220, 255), angle, 30)
     
     def add_mystical_slash_sparkles(self, x: float, y: float, angle: float, range_val: float):
@@ -422,6 +461,32 @@ class EffectsManager:
     def add_neon_impact_effect(self, x: float, y: float):
         """Add neon impact effect for SMG cyberpunk rounds."""
         self.add_enhanced_explosion(x, y, "neon_burst", (0, 255, 255))
+    
+    # Consolidated weapon effects methods
+    def add_weapon_impact_effect(self, x: float, y: float, weapon_type: str, target_type: str = "enemy"):
+        """Add weapon-specific impact effect using consolidated system."""
+        self.impact_effects.create_impact_effect(x, y, weapon_type, target_type)
+    
+    def add_shell_casing_effect(self, x: float, y: float, angle: float, weapon_type: str):
+        """Add shell casing effect using consolidated system."""
+        self.weapon_effects.create_shell_casing(x, y, angle, weapon_type)
+    
+    def add_minigun_muzzle_flash(self, x: float, y: float, angle: float):
+        """Add muzzle flash for minigun using consolidated system."""
+        self.weapon_effects.create_muzzle_flash(x, y, angle, "Minigun")
+    
+    # Consolidated explosion system methods
+    def add_rocket_explosion(self, x: float, y: float, radius: float = 150):
+        """Add large rocket explosion using consolidated system."""
+        self.explosion_manager.create_complex_explosion(x, y, "rocket", radius, damage=100)
+    
+    def add_grenade_explosion(self, x: float, y: float, radius: float = 120):
+        """Add grenade explosion using consolidated system."""
+        self.explosion_manager.create_complex_explosion(x, y, "grenade", radius, damage=75)
+    
+    def add_weapon_specific_explosion(self, x: float, y: float, weapon_type: str):
+        """Add weapon-specific explosion effect."""
+        self.explosion_manager.create_weapon_explosion(x, y, weapon_type)
     
     def add_v_shaped_blast(self, x: float, y: float, angle: float):
         """Add V-shaped blast visual effect for shotgun special attack."""

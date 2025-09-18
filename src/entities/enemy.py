@@ -12,7 +12,7 @@ from enum import Enum
 
 # Handle imports for sprite animation
 try:
-    from src.sprite_animation import AnimatedSprite
+    from src.utils.sprite_animation import AnimatedSprite
 except ImportError:
     try:
         from sprite_animation import AnimatedSprite
@@ -22,7 +22,7 @@ except ImportError:
 
 # Handle asset manager import
 try:
-    from src.asset_manager import AssetManager
+    from src.utils.asset_manager import AssetManager
     asset_manager = AssetManager()
 except ImportError:
     try:

@@ -1,5 +1,5 @@
 {
-  "player_rapture_cores": 228,
+  "player_rapture_cores": 237,
   "character_leaderboards": {
     "cecil": [
       {
@@ -90,6 +90,14 @@
         "enemies_killed": 8,
         "survival_time_seconds": 11,
         "date": "2025-09-17 15:51:27",
+        "character_name": "crown"
+      },
+      {
+        "score": 80,
+        "waves_survived": 1,
+        "enemies_killed": 8,
+        "survival_time_seconds": 17,
+        "date": "2025-09-17 22:24:52",
         "character_name": "crown"
       },
       {
@@ -329,11 +337,35 @@
     ],
     "commander": [
       {
+        "score": 60,
+        "waves_survived": 1,
+        "enemies_killed": 6,
+        "survival_time_seconds": 12,
+        "date": "2025-09-17 21:58:37",
+        "character_name": "commander"
+      },
+      {
+        "score": 50,
+        "waves_survived": 1,
+        "enemies_killed": 5,
+        "survival_time_seconds": 11,
+        "date": "2025-09-17 21:36:40",
+        "character_name": "commander"
+      },
+      {
         "score": 20,
         "waves_survived": 1,
         "enemies_killed": 2,
         "survival_time_seconds": 16,
         "date": "2025-09-17 14:56:01",
+        "character_name": "commander"
+      },
+      {
+        "score": 20,
+        "waves_survived": 1,
+        "enemies_killed": 2,
+        "survival_time_seconds": 8,
+        "date": "2025-09-17 21:28:21",
         "character_name": "commander"
       },
       {
@@ -382,30 +414,6 @@
         "enemies_killed": 0,
         "survival_time_seconds": 1,
         "date": "2025-09-17 15:51:14",
-        "character_name": "commander"
-      },
-      {
-        "score": 0,
-        "waves_survived": 1,
-        "enemies_killed": 0,
-        "survival_time_seconds": 4,
-        "date": "2025-09-17 15:57:07",
-        "character_name": "commander"
-      },
-      {
-        "score": 0,
-        "waves_survived": 1,
-        "enemies_killed": 0,
-        "survival_time_seconds": 1,
-        "date": "2025-09-17 15:57:09",
-        "character_name": "commander"
-      },
-      {
-        "score": 0,
-        "waves_survived": 1,
-        "enemies_killed": 0,
-        "survival_time_seconds": 1,
-        "date": "2025-09-17 16:22:01",
         "character_name": "commander"
       }
     ],
@@ -536,5 +544,5 @@
       }
     ]
   },
-  "last_saved": "2025-09-17 17:22:49"
+  "last_saved": "2025-09-17 22:24:52"
 }

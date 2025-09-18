@@ -10,9 +10,9 @@ import os
 
 # Handle imports for both direct execution and module import
 try:
-    from src.sprite_animation import AnimatedSprite
-    from src.character_config import CharacterConfig
-    from src.weapon_manager import weapon_manager
+    from src.utils.sprite_animation import AnimatedSprite
+    from src.utils.character_config import CharacterConfig
+    from src.weapons.weapon_manager import weapon_manager
 except ImportError:
     try:
         from sprite_animation import AnimatedSprite
@@ -322,7 +322,7 @@ class AnimatedPlayer:
     def perform_special_attack(self, weapon_type: str, current_time: float):
         """Perform weapon-specific special attack."""
         # Set cooldown based on weapon type
-        from src.weapon_manager import weapon_manager
+        from src.weapons.weapon_manager import weapon_manager
         
         # Get weapon special attack config
         weapon_config = weapon_manager.get_weapon_config(weapon_type)

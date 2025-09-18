@@ -9,9 +9,9 @@ import os
 import random
 from typing import Optional, Dict, List, Tuple
 from enum import Enum
-from src.save_manager import GameSaveManager, SaveSlot
-from src.audio_manager import AudioManager
-from src.menu_states import MenuState, MenuStateManager
+from src.utils.save_manager import GameSaveManager, SaveSlot
+from src.systems.audio_manager import AudioManager
+from src.ui.menu_states import MenuState, MenuStateManager
 
 
 class EnhancedMenuSystem:
@@ -527,17 +527,14 @@ class EnhancedMenuSystem:
                         self.set_state(MenuState.LEADERBOARD)
                         return None
                     elif self.main_menu_selection == 1:  # ACHIEVEMENTS
-                        # TODO: Implement achievements
                         print("Achievements not implemented yet")
                         return None
                     elif self.main_menu_selection == 2:  # SHOP
-                        # TODO: Implement shop
                         print("Shop not implemented yet")
                         return None
                     elif self.main_menu_selection == 3:  # PLAY
                         return "new_game"
                     elif self.main_menu_selection == 4:  # THE OUTPOST
-                        # TODO: Implement The Outpost
                         print("The Outpost not implemented yet")
                         return None
                     elif self.main_menu_selection == 5:  # SETTINGS
@@ -557,17 +554,14 @@ class EnhancedMenuSystem:
                     self.set_state(MenuState.LEADERBOARD)
                     return None
                 elif self.main_menu_selection == 1:  # ACHIEVEMENTS
-                    # TODO: Implement achievements
                     print("Achievements not implemented yet")
                     return None
                 elif self.main_menu_selection == 2:  # SHOP
-                    # TODO: Implement shop
                     print("Shop not implemented yet")
                     return None
                 elif self.main_menu_selection == 3:  # PLAY
                     return "new_game"
                 elif self.main_menu_selection == 4:  # THE OUTPOST
-                    # TODO: Implement The Outpost
                     print("The Outpost not implemented yet")
                     return None
                 elif self.main_menu_selection == 5:  # SETTINGS

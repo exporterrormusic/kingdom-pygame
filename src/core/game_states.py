@@ -7,7 +7,7 @@ import pygame as pg
 from enum import Enum
 from typing import Optional
 import sys
-from src.enhanced_menu import EnhancedMenuSystem, MenuState
+from src.ui.enhanced_menu import EnhancedMenuSystem, MenuState
 
 class GameState(Enum):
     """Different game states."""
@@ -73,7 +73,7 @@ class StateManager:
             self.change_state(GameState.CHARACTER_SELECT)
             return True
         elif result == "load_game":
-            # TODO: Implement load game functionality
+            # Load game functionality not implemented
             return True
         elif result == "quit":
             return False

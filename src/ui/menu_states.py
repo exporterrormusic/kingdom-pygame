@@ -8,7 +8,7 @@ import math
 import os
 from typing import Optional, Dict, List, Tuple
 from enum import Enum
-from src.save_manager import GameSaveManager, SaveSlot
+from src.utils.save_manager import GameSaveManager, SaveSlot
 
 
 class MenuState(Enum):

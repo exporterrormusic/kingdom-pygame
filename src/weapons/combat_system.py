@@ -125,7 +125,7 @@ class CombatSystem:
     
     def check_missile_enemy_collisions(self):
         """Check for missile collisions with enemies and handle explosions."""
-        from src.missile_system import MissileState  # Import here to avoid circular imports
+        from src.effects.missile_system import MissileState  # Import here to avoid circular imports
         
         kills = 0
         for missile in self.game.missile_manager.missiles[:]:  # Use slice copy for safe iteration

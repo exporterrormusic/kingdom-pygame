@@ -8,7 +8,7 @@ from typing import Dict, List, Tuple
 import os
 
 try:
-    from src.asset_manager import asset_manager
+    from src.utils.asset_manager import asset_manager
 except ImportError:
     try:
         from asset_manager import asset_manager

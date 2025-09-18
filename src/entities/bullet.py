@@ -1604,7 +1604,7 @@ class BulletManager:
             
             # Set initial fire rate for minigun
             if weapon_type == "Minigun":
-                from src.weapon_manager import weapon_manager
+                from src.weapons.weapon_manager import weapon_manager
                 initial_rate = weapon_manager.get_weapon_property(weapon_type, 'special_mechanics', 'initial_fire_rate', self.base_fire_rate)
                 self.current_fire_rate = initial_rate
     
@@ -1615,7 +1615,7 @@ class BulletManager:
         
         # For minigun, reset to initial slow rate, not base fast rate
         if weapon_type == "Minigun":
-            from src.weapon_manager import weapon_manager
+            from src.weapons.weapon_manager import weapon_manager
             initial_rate = weapon_manager.get_weapon_property(weapon_type, 'special_mechanics', 'initial_fire_rate', self.base_fire_rate)
             self.current_fire_rate = initial_rate
             # Clear the reload reset flag when fire button is released
@@ -1632,7 +1632,7 @@ class BulletManager:
     def update_minigun_fire_rate(self, current_time: float, weapon_type: str):
         """Update fire rate for minigun spin-up effect."""
         if weapon_type == "Minigun" and self.is_firing_continuously:
-            from src.weapon_manager import weapon_manager
+            from src.weapons.weapon_manager import weapon_manager
             
             spin_up_duration = weapon_manager.get_weapon_property(weapon_type, 'special_mechanics', 'spin_up_time', 1.5)
             initial_rate = weapon_manager.get_weapon_property(weapon_type, 'special_mechanics', 'initial_fire_rate', self.base_fire_rate)
@@ -1663,7 +1663,7 @@ class BulletManager:
     
     def create_bullet(self, x: float, y: float, angle: float, bullet_type: BulletType = BulletType.PLAYER, damage: int = None, speed: float = 800, size_multiplier: float = 1.0, color: tuple = None, penetration: int = 1, shape: str = None, range_limit: float = None, weapon_type: str = None, lighting_system=None, special_attack: bool = False, bounce_enabled: bool = False, max_bounces: int = 0, bounce_range: float = None, enemy_targeting: bool = False, trail_enabled: bool = False, trail_duration: float = 0.0, target_pos: tuple = None):
         """Create a bullet without fire rate checking (used for multi-pellet weapons)."""
-        from src.bullet import Bullet
+        from src.entities.bullet import Bullet
         
         # Add muzzle flash lighting effect for shotgun pellets (reduced intensity per pellet)
         if lighting_system and bullet_type == BulletType.PLAYER:

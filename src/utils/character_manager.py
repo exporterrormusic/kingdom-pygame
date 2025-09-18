@@ -7,7 +7,7 @@ import pygame as pg
 import os
 import math
 from typing import List, Dict, Optional
-from src.character_config import character_config_manager, CharacterConfig
+from src.utils.character_config import character_config_manager, CharacterConfig
 
 class CharacterManager:
     """Manages available characters and character selection."""

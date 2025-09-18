@@ -11,29 +11,25 @@ import os
 # Add src directory to path
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
-from src.player import Player
-from src.animated_player import AnimatedPlayer
-from src.bullet import BulletManager
-from src.enemy import EnemyManager
-from src.collision import CollisionManager
-from src.visual_effects import EffectsManager
-from src.atmospheric_effects import AtmosphericEffects
-from src.game_states import StateManager, GameState
-from src.menu_states import MenuState
-from src.character_manager import CharacterManager, CharacterSelectionMenu
-from src.weapon_manager import weapon_manager
-from src.camera_system import CameraSystem
-from src.visual_effects import VisualEffectsSystem  
-from src.combat_system import CombatSystem
-from src.missile_system import MissileManager
-from src.slash_effect import SlashEffectManager
-from src.world_manager import WorldManager
-from src.minimap import MiniMap
-from src.missile_system import MissileManager
-from src.slash_effect import SlashEffectManager
-from src.slash_effect import SlashEffectManager
-from src.missile_system import MissileManager
-from src.score_manager import ScoreManager
+from src.entities.player import Player
+from src.entities.animated_player import AnimatedPlayer
+from src.entities.bullet import BulletManager
+from src.entities.enemy import EnemyManager
+from src.systems.collision import CollisionManager
+from src.effects.visual_effects import EffectsManager
+from src.effects.atmospheric_effects import AtmosphericEffects
+from src.core.game_states import StateManager, GameState
+from src.ui.menu_states import MenuState
+from src.utils.character_manager import CharacterManager, CharacterSelectionMenu
+from src.weapons.weapon_manager import weapon_manager
+from src.systems.camera_system import CameraSystem
+from src.effects.visual_effects import VisualEffectsSystem  
+from src.weapons.combat_system import CombatSystem
+from src.effects.missile_system import MissileManager
+from src.effects.slash_effect import SlashEffectManager
+from src.world.world_manager import WorldManager
+from src.world.minimap import MiniMap
+from src.utils.score_manager import ScoreManager
 
 # Game constants
 DEFAULT_SCREEN_WIDTH = 1920
@@ -127,10 +123,12 @@ class Game:
         self.atmospheric_effects = AtmosphericEffects(3840, 2160)  # World dimensions
         
         # Import and initialize minigun effects manager
-        from src.minigun_effects import MinigunEffectsManager
-        from src.shotgun_effects import ShotgunEffectsManager
-        self.minigun_effects_manager = MinigunEffectsManager()
-        self.shotgun_effects_manager = ShotgunEffectsManager()
+        from src.effects.minigun_effects import MinigunEffectsManager
+        from src.effects.shotgun_effects import ShotgunEffectsManager
+        
+        # Pass None for lighting_system since it's not available in this game
+        self.minigun_effects_manager = MinigunEffectsManager(lighting_system=None)
+        self.shotgun_effects_manager = ShotgunEffectsManager(lighting_system=None)
         
         # Camera zoom limits (handled by camera system)
         self.min_zoom = 0.8   # Limited zoom out to prevent going too wide
@@ -510,6 +508,11 @@ class Game:
                     elif result == "back":
                         # Go back to main menu
                         self.state_manager.change_state(GameState.MENU)
+                        # ESC was handled by character selection - remove from keys_just_pressed to prevent fallback
+                        if pg.K_ESCAPE in self.keys_just_pressed:
+                            self.keys_just_pressed.remove(pg.K_ESCAPE)
+                        # Skip further processing of this event to prevent menu from seeing it
+                        continue
             
             elif event.type == pg.MOUSEBUTTONDOWN:
                 if event.button == 1:  # Left mouse button
@@ -630,6 +633,9 @@ class Game:
             elif self.state_manager.is_paused():
                 # Update pause menu hover
                 self.state_manager.handle_pause_mouse_hover(mouse_pos)
+            elif self.state_manager.is_character_select():
+                # Update character selection hover
+                self.character_selection.handle_mouse_hover(mouse_pos)
             elif self.state_manager.is_quit_confirmation():
                 # Update quit confirmation hover
                 self.state_manager.handle_quit_confirmation_mouse_hover(mouse_pos)
@@ -1416,7 +1422,7 @@ class Game:
     
     def check_missile_enemy_collisions(self):
         """Check for missile collisions with enemies and handle explosions."""
-        from src.missile_system import MissileState  # Import here to avoid circular imports
+        from src.effects.missile_system import MissileState  # Import here to avoid circular imports
         
         kills = 0
         for missile in self.missile_manager.missiles[:]:  # Use slice copy for safe iteration
