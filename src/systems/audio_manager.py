@@ -4,6 +4,7 @@ Handles background music and sound effects with caching and volume control.
 """
 
 import pygame as pg
+import os
 from typing import Optional
 
 
@@ -81,6 +82,76 @@ class AudioManager:
             if channel:
                 channel.play(sound)
     
+    def play_weapon_fire_sound(self, weapon_name: str):
+        """Play weapon firing sound based on weapon name."""
+        # Map weapon types to file names
+        weapon_file_map = {
+            "Assault Rifle": "AR",
+            "Rocket Launcher": "rocket",
+            "Shotgun": "shotgun",
+            "SMG": "SMG",
+            "Sniper": "sniper",
+            "Sword": "sword"
+        }
+        
+        if weapon_name in weapon_file_map:
+            file_name = weapon_file_map[weapon_name]
+            sound_path = f"assets/sounds/sfx/weapons/{file_name}/fire_{file_name}.wav"
+            # Check if file exists before trying to play
+            if os.path.exists(sound_path):
+                self.play_sound(sound_path)
+            else:
+                print(f"Firing sound file not found: {sound_path}")
+        else:
+            print(f"No firing sound available for weapon: {weapon_name}")
+    
+    def play_weapon_reload_sound(self, weapon_name: str):
+        """Play weapon reload sound based on weapon name.""" 
+        # Map weapon types to file names
+        weapon_file_map = {
+            "Assault Rifle": "AR",
+            "Rocket Launcher": "rocket", 
+            "Shotgun": "shotgun",
+            "SMG": "SMG",
+            "Sniper": "sniper",
+            "Sword": "sword"
+        }
+        
+        if weapon_name in weapon_file_map:
+            file_name = weapon_file_map[weapon_name]
+            sound_path = f"assets/sounds/sfx/weapons/{file_name}/reload_{file_name}.wav"
+            # Check if file exists before trying to play
+            if os.path.exists(sound_path):
+                self.play_sound(sound_path)
+            else:
+                print(f"Reload sound file not found: {sound_path}")
+        else:
+            print(f"No reload sound available for weapon: {weapon_name}")
+    
+    def play_rocket_flight_sound(self):
+        """Start playing rocket flight sound in loop on an available channel."""
+        sound_path = "assets/sounds/sfx/weapons/rocket/rocket_fly.wav"
+        sound = self.load_sound(sound_path)
+        if sound:
+            # Find an available channel instead of using a dedicated one
+            channel = pg.mixer.find_channel()
+            if not channel:
+                # Force use of an existing channel if no free channels
+                channel = pg.mixer.Channel(12)  # Use a specific channel
+            channel.play(sound, loops=-1)  # Loop indefinitely
+            return channel  # Return the channel object, not the play() result
+        return None
+            
+    def stop_rocket_flight_sound(self, channel=None):
+        """Stop the rocket flight sound on a specific channel."""
+        if channel:
+            channel.stop()
+    
+    def play_rocket_explosion_sound(self):
+        """Play rocket explosion sound."""
+        sound_path = "assets/sounds/sfx/weapons/rocket/rocket_explosion.wav"
+        self.play_sound(sound_path)
+
     def play_burst_sound(self, character_name: str):
         """Play a character's burst sound using the dedicated channel."""
         burst_sound_path = f"assets/sounds/voices/{character_name.lower()}_burst.wav"

@@ -7,7 +7,7 @@ similar to how enemies work in the game.
 import pygame as pg
 import random
 import math
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any, Optional
 
 class Particle:
     """A single atmospheric particle with fixed world coordinates."""
@@ -165,7 +165,7 @@ class Particle:
 class AtmosphericEffects:
     """Manages atmospheric effects with particles at fixed world coordinates."""
     
-    def __init__(self, world_width: int, world_height: int):
+    def __init__(self, world_width: int, world_height: int, audio_manager=None):
         self.world_width = world_width
         self.world_height = world_height
         self.particles: List[Particle] = []
@@ -180,6 +180,15 @@ class AtmosphericEffects:
         self.lightning_duration = 0.0
         self.next_lightning_time = 0.0
         
+        # Audio integration
+        self.audio_manager = audio_manager
+        self.current_ambient_sound = None  # Currently playing ambient loop
+        self.thunder_sounds = [
+            "assets/sounds/sfx/environment/rain/Thunder_A.ogg",
+            "assets/sounds/sfx/environment/rain/Thunder_B.ogg", 
+            "assets/sounds/sfx/environment/rain/Thunder_C.ogg"
+        ]
+        
         # Debug info
         self.debug_counter = 0
         
@@ -189,16 +198,54 @@ class AtmosphericEffects:
             return
             
         print(f"Setting atmosphere to: {atmosphere_type}")
+        
+        # Stop current ambient sound if any
+        self._stop_ambient_sound()
+        
+        # Set new atmosphere
         self.current_atmosphere = atmosphere_type
         self.particles.clear()
         
+        # Start appropriate environmental sounds
         if atmosphere_type == "rain":
             self._generate_particles("rain", 600, player_pos)  # Reduced from 1000
+            self._start_ambient_sound("assets/sounds/sfx/environment/rain/rain_bkg.ogg")
         elif atmosphere_type == "snow":
             self._generate_particles("snow", 400, player_pos)  # Reduced from 800
+            self._start_ambient_sound("assets/sounds/sfx/environment/snow/snow_wind.wav")
         elif atmosphere_type == "cherry_blossom":
             self._generate_particles("cherry_blossom", 300, player_pos)  # Reduced from 500
+            # No ambient sound for cherry blossoms
+        elif atmosphere_type == "none":
+            # No particles or sounds for none
+            pass
     
+    def _start_ambient_sound(self, sound_path: str):
+        """Start playing an ambient loop sound."""
+        if self.audio_manager and sound_path:
+            try:
+                # Load and play as music for looping
+                pg.mixer.music.load(sound_path)
+                pg.mixer.music.set_volume(0.3)  # Lower volume for ambient sounds
+                pg.mixer.music.play(-1)  # Loop indefinitely
+                self.current_ambient_sound = sound_path
+                print(f"Started ambient sound: {sound_path}")
+            except Exception as e:
+                print(f"Failed to start ambient sound {sound_path}: {e}")
+    
+    def _stop_ambient_sound(self):
+        """Stop the currently playing ambient sound."""
+        if self.current_ambient_sound:
+            pg.mixer.music.stop()
+            self.current_ambient_sound = None
+    
+    def _play_thunder_sound(self):
+        """Play a random thunder sound effect."""
+        if self.audio_manager:
+            thunder_sound = random.choice(self.thunder_sounds)
+            self.audio_manager.play_sound(thunder_sound)
+            print(f"Playing thunder: {thunder_sound}")
+
     def _generate_particles(self, particle_type: str, count: int, player_pos=None):
         """Generate particles distributed across the entire world space, independent of player position."""
         print(f"Generating {count} {particle_type} particles across entire world ({self.world_width}x{self.world_height})")
@@ -245,6 +292,9 @@ class AtmosphericEffects:
             self.lightning_duration = random.uniform(0.1, 0.2)  # Flash duration
             self.next_lightning_time = self.lightning_timer + random.uniform(5.0, 12.0)
             print("Lightning flash!")
+            
+            # Play thunder sound with the lightning flash
+            self._play_thunder_sound()
         
         # End lightning flash
         if self.lightning_active:

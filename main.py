@@ -31,6 +31,12 @@ from src.world.world_manager import WorldManager
 from src.world.minimap import MiniMap
 from src.utils.score_manager import ScoreManager
 
+# Multiplayer imports
+from src.networking.network_manager import NetworkManager
+from src.networking.game_synchronizer import GameStateSynchronizer
+from src.networking.modern_multiplayer_lobby import ModernMultiplayerLobby
+from src.networking.multiplayer_renderer import MultiplayerRenderer
+
 # Game constants
 DEFAULT_SCREEN_WIDTH = 1920
 DEFAULT_SCREEN_HEIGHT = 1080
@@ -117,10 +123,10 @@ class Game:
         )
         
         self.slash_effect_manager = SlashEffectManager()
-        self.missile_manager = MissileManager()
+        self.missile_manager = MissileManager(self.state_manager.enhanced_menu.audio_manager)
         
         # Initialize atmospheric effects
-        self.atmospheric_effects = AtmosphericEffects(3840, 2160)  # World dimensions
+        self.atmospheric_effects = AtmosphericEffects(3840, 2160, self.state_manager.enhanced_menu.audio_manager)  # World dimensions
         
         # Import and initialize minigun effects manager
         from src.effects.minigun_effects import MinigunEffectsManager
@@ -142,6 +148,70 @@ class Game:
         
         # Input handling
         self.keys_just_pressed = []
+        
+        # Modern multiplayer systems
+        self.multiplayer_lobby = ModernMultiplayerLobby(self.screen_width, self.screen_height)
+        self.network_manager = None
+        self.game_synchronizer = None
+        self.multiplayer_renderer = MultiplayerRenderer(self.character_manager)
+        self.is_multiplayer = False
+        self.multiplayer_players = {}  # Network player states
+    
+    def _start_multiplayer_game(self):
+        """Start a multiplayer game from the lobby."""
+        if self.multiplayer_lobby.get_network_manager():
+            # Setup multiplayer
+            self.network_manager = self.multiplayer_lobby.get_network_manager()
+            self.is_multiplayer = True
+            
+            # Create game synchronizer
+            self.game_synchronizer = GameStateSynchronizer(
+                self.network_manager, 
+                is_host=self.multiplayer_lobby.is_host
+            )
+            
+            # Set local player character from lobby
+            lobby_players = self.multiplayer_lobby.get_players()
+            local_id = self.multiplayer_lobby.get_local_player_id()
+            if local_id in lobby_players:
+                self.selected_character = lobby_players[local_id].character.lower().replace(' ', '-')
+                self.character_manager.set_current_character(self.selected_character)
+            
+            # Start the game
+            self.reset_game()
+            self.state_manager.start_game_session()
+            self.state_manager.change_state(GameState.PLAYING)
+            self.state_manager.enhanced_menu.start_battle_music()
+            
+            # Setup synchronizer
+            self.game_synchronizer.set_local_player_id(local_id)
+            self.game_synchronizer.set_game_references(
+                self.player, self.bullet_manager, 
+                self.enemy_manager, self.effects_manager
+            )
+            
+            # Configure enemy manager for network play
+            self.enemy_manager.set_network_mode(
+                is_host=self.multiplayer_lobby.is_host,
+                game_synchronizer=self.game_synchronizer
+            )
+    
+    def _on_bullet_fired(self, bullet):
+        """Called when a bullet is fired (for multiplayer synchronization)."""
+        if self.is_multiplayer and self.game_synchronizer:
+            local_player_id = self.multiplayer_lobby.get_local_player_id()
+            if local_player_id:
+                self.game_synchronizer.on_bullet_fired(bullet, local_player_id)
+    
+    def _on_explosion(self, x, y, color, radius=50, small=False):
+        """Called when an explosion occurs (for multiplayer synchronization)."""
+        if self.is_multiplayer and self.game_synchronizer:
+            self.game_synchronizer.on_explosion(x, y, color, radius, small)
+    
+    def _on_muzzle_flash(self, x, y, angle, weapon_type):
+        """Called when a muzzle flash occurs (for multiplayer synchronization)."""
+        if self.is_multiplayer and self.game_synchronizer:
+            self.game_synchronizer.on_muzzle_flash(x, y, angle, weapon_type)
 
     # Camera system compatibility properties
     @property
@@ -277,7 +347,7 @@ class Game:
         """Reset the game to initial state."""
         self.create_player_from_selection()
         self.bullet_manager = BulletManager()
-        self.missile_manager = MissileManager()
+        self.missile_manager = MissileManager(self.state_manager.enhanced_menu.audio_manager)
         
         # Set bullet manager fire rate based on player's weapon
         if hasattr(self.player, 'weapon_fire_rate'):
@@ -299,7 +369,7 @@ class Game:
         self.slash_effect_manager = SlashEffectManager()
         
         # Initialize atmospheric effects and set random atmosphere for new level
-        self.atmospheric_effects = AtmosphericEffects(3840, 2160)  # World dimensions
+        self.atmospheric_effects = AtmosphericEffects(3840, 2160, self.state_manager.enhanced_menu.audio_manager)  # World dimensions
         # Pass player position directly - both systems use same coordinate system centered at (0,0)
         player_pos = (self.player.pos.x, self.player.pos.y) if hasattr(self, 'player') and self.player else None
         self.atmospheric_effects.set_random_atmosphere(player_pos)
@@ -312,6 +382,10 @@ class Game:
             # Only clear cores and chests on the map, not the player's total
             self.world_manager.core_manager.clear_all_cores()
             print(f"Game reset - Player keeps {self.score_manager.player_rapture_cores} cores as currency")
+        
+        # Reset world manager objectives to prevent survival timer carryover
+        if self.world_manager:
+            self.world_manager.generate_new_level()
         
         # Sword attack state for continuous damage
         self.active_sword_attack = None
@@ -479,8 +553,8 @@ class Game:
                     elif self.state_manager.is_paused():
                         # Let the pause menu handler deal with escape in pause state
                         pass
-                # For other states, let the specific state handlers deal with ESC first
-                # Only show global quit confirmation for states that don't have their own ESC handling
+                    # For all other states (including PLAY_MODE_SELECT), let them handle escape first
+                    # The global handler will run later if they don't handle it
                 
                 # Debug toggles (only in game)
                 if self.state_manager.is_playing():
@@ -506,8 +580,8 @@ class Game:
                         # Start battle music
                         self.state_manager.enhanced_menu.start_battle_music()
                     elif result == "back":
-                        # Go back to main menu
-                        self.state_manager.change_state(GameState.MENU)
+                        # Go back to play mode selection
+                        self.state_manager.change_state(GameState.PLAY_MODE_SELECT)
                         # ESC was handled by character selection - remove from keys_just_pressed to prevent fallback
                         if pg.K_ESCAPE in self.keys_just_pressed:
                             self.keys_just_pressed.remove(pg.K_ESCAPE)
@@ -525,6 +599,8 @@ class Game:
                                 self.state_manager.change_state(GameState.CHARACTER_SELECT)
                             elif result == "load_game":
                                 self.state_manager.change_state(GameState.SAVE_LOAD)
+                            elif result == "play":
+                                self.state_manager.change_state(GameState.PLAY_MODE_SELECT)
                             elif result == "settings":
                                 self.state_manager.change_state(GameState.SETTINGS)
                             elif result == "quit":
@@ -533,6 +609,13 @@ class Game:
                     # Handle settings menu mouse clicks
                     elif self.state_manager.get_state() == GameState.SETTINGS:
                         self.state_manager.enhanced_menu.handle_settings_mouse_click(mouse_pos)
+                    # Handle play mode selection mouse clicks
+                    elif self.state_manager.get_state() == GameState.PLAY_MODE_SELECT:
+                        result = self.state_manager.enhanced_menu.handle_play_mode_input(pg.event.Event(pg.MOUSEBUTTONDOWN, {'button': 1, 'pos': mouse_pos}))
+                        if result == "new_game":
+                            self.state_manager.change_state(GameState.CHARACTER_SELECT)
+                        elif result == "multiplayer":
+                            self.state_manager.change_state(GameState.MULTIPLAYER_LOBBY)
                     # Handle pause menu mouse clicks
                     elif self.state_manager.is_paused():
                         result = self.state_manager.handle_pause_mouse_click(mouse_pos)
@@ -594,8 +677,18 @@ class Game:
                     self.state_manager.change_state(GameState.PLAYING)
                 elif result == "new_game":
                     self.state_manager.change_state(GameState.CHARACTER_SELECT)
+                elif result == "play":
+                    self.state_manager.change_state(GameState.PLAY_MODE_SELECT)
+                elif result == "multiplayer":
+                    self.state_manager.change_state(GameState.MULTIPLAYER_LOBBY)
                 elif result == "leaderboard_back":
                     # ESC was handled by leaderboard - remove from keys_just_pressed to prevent fallback
+                    if pg.K_ESCAPE in self.keys_just_pressed:
+                        self.keys_just_pressed.remove(pg.K_ESCAPE)
+                elif result is None and event.type == pg.KEYDOWN and event.key == pg.K_ESCAPE:
+                    # ESC was handled by a submenu (achievements, etc.) but result is None
+                    # This means the submenu successfully processed ESC and went back to main menu
+                    # We need to consume the ESC key to prevent the fallback handler from running
                     if pg.K_ESCAPE in self.keys_just_pressed:
                         self.keys_just_pressed.remove(pg.K_ESCAPE)
                 elif not self.state_manager.handle_enhanced_menu_input(event):
@@ -611,6 +704,20 @@ class Game:
                         self.state_manager.change_state(GameState.PAUSED)
                     else:
                         self.state_manager.change_state(GameState.MENU)
+            elif self.state_manager.get_state() == GameState.PLAY_MODE_SELECT:
+                result = self.state_manager.enhanced_menu.handle_input(event)
+                if result == "new_game":
+                    self.state_manager.change_state(GameState.CHARACTER_SELECT)
+                elif result == "multiplayer":
+                    self.state_manager.change_state(GameState.MULTIPLAYER_LOBBY)
+                elif result == "back":
+                    # ESC was handled by play mode selection - change state and completely stop processing this event
+                    self.state_manager.change_state(GameState.MENU)
+                    self.state_manager.enhanced_menu.set_state(MenuState.MAIN)
+                    if pg.K_ESCAPE in self.keys_just_pressed:
+                        self.keys_just_pressed.remove(pg.K_ESCAPE)
+                    # Break out of event processing completely to prevent any further handling
+                    break
             elif self.state_manager.get_state() == GameState.SAVE_LOAD:
                 result = self.state_manager.enhanced_menu.handle_input(event)
                 if result and result.startswith("load_slot_"):
@@ -618,6 +725,17 @@ class Game:
                     # TODO: Load the actual game from save slot
                     print(f"Loading game from slot {slot_id}")
                     self.state_manager.change_state(GameState.CHARACTER_SELECT)
+            elif self.state_manager.get_state() == GameState.MULTIPLAYER_LOBBY:
+                # Handle multiplayer lobby input
+                result = self.multiplayer_lobby.handle_input(event)
+                if result == "back":
+                    self.state_manager.change_state(GameState.MENU)
+                    # ESC was handled by multiplayer lobby - remove from keys_just_pressed to prevent fallback
+                    if pg.K_ESCAPE in self.keys_just_pressed:
+                        self.keys_just_pressed.remove(pg.K_ESCAPE)
+                elif result == "start_game":
+                    # Start multiplayer game
+                    self._start_multiplayer_game()
         
         # Handle continuous mouse hover for menu states
         if not pg.mouse.get_pressed()[0]:  # Only when not clicking
@@ -630,6 +748,9 @@ class Game:
             elif self.state_manager.get_state() == GameState.SETTINGS:
                 # Update settings hover
                 self.state_manager.enhanced_menu.check_mouse_hover_settings_tabs(mouse_pos)
+            elif self.state_manager.get_state() == GameState.PLAY_MODE_SELECT:
+                # Update play mode selection hover
+                self.state_manager.enhanced_menu.update_play_mode_hover(mouse_pos)
             elif self.state_manager.is_paused():
                 # Update pause menu hover
                 self.state_manager.handle_pause_mouse_hover(mouse_pos)
@@ -639,6 +760,12 @@ class Game:
             elif self.state_manager.is_quit_confirmation():
                 # Update quit confirmation hover
                 self.state_manager.handle_quit_confirmation_mouse_hover(mouse_pos)
+        
+        # Additional hover check specifically for play mode selection to ensure initial responsiveness
+        elif self.state_manager.get_state() == GameState.PLAY_MODE_SELECT:
+            mouse_pos = pg.mouse.get_pos()
+            # Always check hover for play mode selection, even when clicking
+            self.state_manager.enhanced_menu.update_play_mode_hover(mouse_pos)
         
         # Handle legacy state-specific input (keeping for compatibility)
         if self.state_manager.is_game_over():
@@ -680,6 +807,7 @@ class Game:
                 # For menu state, only show quit confirmation if we're in main menu
                 if self.state_manager.enhanced_menu.get_state() == MenuState.MAIN:
                     self.state_manager.show_quit_confirmation(current_state)
+            # Note: PLAY_MODE_SELECT handles its own escape key and should not trigger quit confirmation
             
         elif self.state_manager.is_playing():
             # Handle continuous game input
@@ -740,6 +868,8 @@ class Game:
                                     # Perform normal melee slash attack
                                     self.perform_sword_attack(weapon_damage)
                                 
+                                # Note: No sword sound files available in assets/sounds/sfx/weapons/sword/
+                                
                                 self.bullet_manager.last_shot_time = self.game_time
                                 bullet_fired = True
                                 
@@ -789,6 +919,9 @@ class Game:
                                         speed=grenade_props.get("projectile_speed", 600)
                                     )
                                     
+                                    # Play rocket launcher firing sound for grenade launcher
+                                    self.state_manager.enhanced_menu.audio_manager.play_weapon_fire_sound("Rocket Launcher")
+                                    
                                     self.player.use_grenade_round()
                                     self.bullet_manager.last_shot_time = self.game_time
                                     grenade_fired = True
@@ -801,6 +934,9 @@ class Game:
                                     
                                     # Add grenade launcher muzzle flash
                                     self.effects_manager.add_explosion(gun_tip.x, gun_tip.y, (255, 150, 50), small=True)
+                                    
+                                    # Call multiplayer synchronization callback for explosion
+                                    self._on_explosion(gun_tip.x, gun_tip.y, (255, 150, 50), 25, small=True)
                         
                         # Direct fix for Assault Rifle normal firing
                         if not grenade_fired and self.player.weapon_type == "Assault Rifle":
@@ -829,7 +965,14 @@ class Game:
                                         trail_duration=0.0
                                     )
                                 
+                                    # Call multiplayer synchronization callback if bullet was fired
+                                    if bullet_fired and self.bullet_manager.bullets:
+                                        self._on_bullet_fired(self.bullet_manager.bullets[-1])
+                                
                                     if bullet_fired:
+                                        # Play assault rifle firing sound
+                                        self.state_manager.enhanced_menu.audio_manager.play_weapon_fire_sound("Assault Rifle")
+                                        
                                         self.effects_manager.add_assault_rifle_muzzle_flash(
                                             gun_tip.x, gun_tip.y, self.player.angle
                                         )
@@ -875,6 +1018,9 @@ class Game:
                                         explosion_radius=explosion_radius,
                                         special_attack=is_special_attack
                                     )
+                                    
+                                    # Play rocket firing sound
+                                    self.state_manager.enhanced_menu.audio_manager.play_weapon_fire_sound("Rocket Launcher")
                                     
                                     self.bullet_manager.last_shot_time = self.game_time
                                     bullet_fired = True
@@ -926,6 +1072,9 @@ class Game:
                                     self.bullet_manager.last_shot_time = self.game_time
                                     bullet_fired = True
                                     
+                                    # Play shotgun firing sound
+                                    self.state_manager.enhanced_menu.audio_manager.play_weapon_fire_sound("Shotgun")
+                                    
                                     # Reset special attack flag after firing
                                     if hasattr(self.player, 'using_special_attack'):
                                         self.player.using_special_attack = False
@@ -938,6 +1087,8 @@ class Game:
                                     self.effects_manager.add_shotgun_muzzle_flash(
                                         gun_tip.x, gun_tip.y, self.player.angle
                                     )
+                                    # Call multiplayer synchronization callback for muzzle flash
+                                    self._on_muzzle_flash(gun_tip.x, gun_tip.y, self.player.angle, "Shotgun")
                             else:
                                 # Single bullet weapons (AR, SMG, Sniper, Minigun)
                                 is_special_attack = getattr(self.player, 'using_special_attack', False)
@@ -1035,6 +1186,16 @@ class Game:
                                     
                                     # Both streams fired successfully
                                     bullet_fired = bullet_fired_1 or bullet_fired_2
+                                    
+                                    # Play SMG firing sound if either stream fired
+                                    if bullet_fired:
+                                        self.state_manager.enhanced_menu.audio_manager.play_weapon_fire_sound("SMG")
+                                    
+                                    # Call multiplayer synchronization callbacks for fired bullets
+                                    if bullet_fired_1 and len(self.bullet_manager.bullets) >= 1:
+                                        self._on_bullet_fired(self.bullet_manager.bullets[-2 if bullet_fired_2 else -1])  # First stream bullet
+                                    if bullet_fired_2 and len(self.bullet_manager.bullets) >= 1:
+                                        self._on_bullet_fired(self.bullet_manager.bullets[-1])  # Second stream bullet
                                 else:
                                     # Normal bullet shooting for non-SMG weapons (other than Assault Rifle which has its own fix)
                                     if self.player.weapon_type != "Assault Rifle":
@@ -1052,16 +1213,28 @@ class Game:
                                             trail_enabled=(self.player.weapon_type == "Sniper" and is_special_attack),
                                             trail_duration=3.0 if (self.player.weapon_type == "Sniper" and is_special_attack) else 0.0
                                         )
+                                        
+                                        # Call multiplayer synchronization callback if bullet was fired
+                                        if bullet_fired and self.bullet_manager.bullets:
+                                            self._on_bullet_fired(self.bullet_manager.bullets[-1])
+                                        
+                                        # Play weapon firing sound
+                                        if bullet_fired:
+                                            self.state_manager.enhanced_menu.audio_manager.play_weapon_fire_sound(self.player.weapon_type)
                             
                             # Add muzzle flash effects for specific weapons
                             if bullet_fired and self.player.weapon_type == "Assault Rifle":
                                 self.effects_manager.add_assault_rifle_muzzle_flash(
                                     gun_tip.x, gun_tip.y, self.player.angle
                                 )
+                                # Call multiplayer synchronization callback for muzzle flash
+                                self._on_muzzle_flash(gun_tip.x, gun_tip.y, self.player.angle, "Assault Rifle")
                             elif bullet_fired and self.player.weapon_type == "SMG":
                                 self.effects_manager.add_smg_muzzle_flash(
                                     gun_tip.x, gun_tip.y, self.player.angle
                                 )
+                                # Call multiplayer synchronization callback for muzzle flash
+                                self._on_muzzle_flash(gun_tip.x, gun_tip.y, self.player.angle, "SMG")
                             
                             # Reset special attack flags after firing  
                             if bullet_fired:
@@ -1102,7 +1275,7 @@ class Game:
                     if hasattr(self, 'bullet_manager') and hasattr(self, 'player'):
                         weapon_type = getattr(self.player, 'weapon_type', None)
                         self.bullet_manager.stop_continuous_fire(weapon_type)
-                        # Clear reload reset flag when fire button is released
+                        # Reset minigun reload flag when firing stops
                         if weapon_type == "Minigun":
                             self.bullet_manager.minigun_reload_reset = False
     
@@ -1502,6 +1675,20 @@ class Game:
         # Always update state manager for menu animations
         self.state_manager.update(self.dt)
         
+        # Update multiplayer lobby if active
+        if self.state_manager.get_state() == GameState.MULTIPLAYER_LOBBY:
+            self.multiplayer_lobby.update(self.dt)
+        
+        # Update multiplayer synchronization during gameplay
+        if self.is_multiplayer and self.game_synchronizer and self.state_manager.is_playing():
+            self.game_synchronizer.update(self.dt)
+            # Get network players for rendering
+            self.multiplayer_players = self.game_synchronizer.get_network_players()
+            
+            # Sync enemies if host (host authoritative)
+            if self.multiplayer_lobby and self.multiplayer_lobby.is_host:
+                self.enemy_manager.sync_enemies_to_network(self.game_time)
+        
         if self.state_manager.is_playing() and self.player:
             # Update camera shake
             self.update_camera_shake(self.dt)
@@ -1513,24 +1700,8 @@ class Game:
             keys_pressed = pg.key.get_pressed()
             self.world_manager.update(self.dt, self.player.pos, keys_pressed)
             
-            # Check for objective completion and end match successfully
-            if self.world_manager.is_objective_complete():
-                # End the match and record it in the leaderboard
-                character_name = self.character_manager.current_character
-                if character_name and self.player.is_alive():
-                    final_record = self.score_manager.end_match(character_name, self.game_time)
-                    print(f"Match completed successfully! Final record: Score {final_record.score}, Wave {final_record.waves_survived}, Kills {final_record.enemies_killed}")
-                    
-                    # End the game session
-                    self.state_manager.end_game_session()
-                    
-                    # Set game over stats for victory screen
-                    self.state_manager.set_game_over_stats(
-                        self.score_manager.current_match_score, 
-                        self.enemy_manager.get_wave(), 
-                        self.enemy_manager.get_kills()
-                    )
-                    self.state_manager.change_state(GameState.GAME_OVER)
+            # Only end match when player dies - no objective completion
+            # (Removed objective completion check for pure survival mode)
             
             # Update core system (replaces resource system) - pass player position and score manager for auto pickup
             self.world_manager.core_manager.update(self.dt, self.player.pos, self.score_manager)
@@ -1553,6 +1724,28 @@ class Game:
             self.missile_manager.update(self.dt, self.enemy_manager.get_enemies())
             self.enemy_manager.update(self.dt, self.player.pos, self.game_time, self.bullet_manager,
                                      self.base_zoom, self.screen_width, self.screen_height)
+            
+            # Sync game state in multiplayer
+            if self.is_multiplayer and self.game_synchronizer:
+                # Sync wave updates (host only)
+                if self.multiplayer_lobby and self.multiplayer_lobby.is_host:
+                    self.game_synchronizer.on_wave_update(
+                        self.enemy_manager.wave, 
+                        self.enemy_manager.enemies_killed,
+                        self.enemy_manager.wave_timer
+                    )
+                
+                # Sync score updates (all players)
+                local_player_id = self.multiplayer_lobby.get_local_player_id()
+                if local_player_id and hasattr(self.score_manager, 'get_current_score'):
+                    current_score = self.score_manager.get_current_score()
+                    self.game_synchronizer.on_score_update(
+                        local_player_id,
+                        current_score,
+                        self.score_manager.player_rapture_cores,
+                        self.enemy_manager.enemies_killed
+                    )
+            
             self.effects_manager.update(self.dt, self.player.pos)
             self.slash_effect_manager.update(self.dt)
             
@@ -1666,7 +1859,7 @@ class Game:
         
         # Set appropriate cursor based on game state
         current_state = self.state_manager.get_state()
-        if current_state in [GameState.WELCOME, GameState.MENU, GameState.SETTINGS, 
+        if current_state in [GameState.WELCOME, GameState.MENU, GameState.PLAY_MODE_SELECT, GameState.SETTINGS, 
                            GameState.SAVE_LOAD, GameState.CHARACTER_SELECT, GameState.PAUSED, 
                            GameState.GAME_OVER, GameState.QUIT_CONFIRMATION]:
             self.set_menu_cursor()
@@ -1691,9 +1884,15 @@ class Game:
         elif self.state_manager.get_state() == GameState.SAVE_LOAD:
             self.state_manager.render_save_load()
             
+        elif self.state_manager.get_state() == GameState.PLAY_MODE_SELECT:
+            self.state_manager.render_play_mode_select()
+            
         elif self.state_manager.is_character_select():
             self.character_selection.update(self.dt)
             self.character_selection.render(self.screen)
+            
+        elif self.state_manager.get_state() == GameState.MULTIPLAYER_LOBBY:
+            self.multiplayer_lobby.render(self.screen)
             
         elif self.state_manager.is_playing():
             # Create a virtual surface for world rendering that can be scaled for zoom
@@ -1739,6 +1938,12 @@ class Game:
                 else:
                     # Regular player
                     self.player.render(virtual_surface, self.game_time)
+            
+            # Render multiplayer players
+            if self.is_multiplayer and self.multiplayer_players:
+                self.multiplayer_renderer.render_network_players(
+                    virtual_surface, self.multiplayer_players, virtual_offset
+                )
             
             # Render enemies first (bottom layer)
             self.enemy_manager.render(virtual_surface, virtual_offset)
@@ -1811,6 +2016,13 @@ class Game:
             
             # Render game UI
             self.render_game_ui_clean()
+            
+            # Render multiplayer UI if active
+            if self.is_multiplayer and self.multiplayer_players:
+                local_player_id = self.multiplayer_lobby.get_local_player_id() if self.multiplayer_lobby else "local"
+                self.multiplayer_renderer.render_multiplayer_ui(
+                    self.screen, self.multiplayer_players, local_player_id
+                )
             
             # Render pause overlay
             self.state_manager.render_pause()

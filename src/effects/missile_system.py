@@ -351,7 +351,7 @@ class Missile:
     """Individual missile projectile with targeting and explosion capabilities."""
     
     def __init__(self, start_x: float, start_y: float, target_x: float, target_y: float, 
-                 damage: int = 120, explosion_radius: float = 150, speed: float = 800, special_attack: bool = False):
+                 damage: int = 120, explosion_radius: float = 150, speed: float = 800, special_attack: bool = False, audio_manager=None, is_grenade: bool = False):
         """Initialize a missile.
         
         Args:
@@ -361,6 +361,8 @@ class Missile:
             explosion_radius: AOE explosion radius
             speed: Missile flight speed (doubled for more impact)
             special_attack: Whether this is a special attack missile
+            audio_manager: Audio manager for playing rocket sounds
+            is_grenade: Whether this is a grenade (affects audio behavior)
         """
         self.pos = pg.Vector2(start_x, start_y)
         self.target = pg.Vector2(target_x, target_y)
@@ -369,9 +371,17 @@ class Missile:
         self.speed = speed
         self.state = MissileState.FLYING
         self.special_attack = special_attack
+        self.audio_manager = audio_manager
+        self.is_grenade = is_grenade
         
-        # Grenade flag for different rendering (set externally by fire_grenade method)
-        self.is_grenade = False
+        # Start rocket flight sound only for rockets (not grenades)
+        self.flight_sound_playing = False
+        self.flight_sound_channel = None
+        if self.audio_manager and not self.is_grenade:
+            # Start rocket flight sound in loop only for rockets
+            self.flight_sound_channel = self.audio_manager.play_rocket_flight_sound()
+            if self.flight_sound_channel:
+                self.flight_sound_playing = True
         
         # Calculate flight direction
         direction = self.target - self.pos
@@ -470,6 +480,16 @@ class Missile:
         """Trigger missile detonation."""
         self.state = MissileState.EXPLODING
         self.explosion_age = 0.0
+        
+        # Stop flight sound if it was playing
+        if self.audio_manager and self.flight_sound_playing and self.flight_sound_channel:
+            self.audio_manager.stop_rocket_flight_sound(self.flight_sound_channel)
+            self.flight_sound_playing = False
+            self.flight_sound_channel = None
+        
+        # Always play explosion sound for both missiles and grenades
+        if self.audio_manager:
+            self.audio_manager.play_rocket_explosion_sound()
         
         # Create ground fire for special attacks
         if self.special_attack and hasattr(self, 'ground_fire_callback') and self.ground_fire_callback:
@@ -1323,15 +1343,16 @@ class Missile:
 class MissileManager:
     """Manages all active missiles and ground fire effects in the game."""
     
-    def __init__(self):
+    def __init__(self, audio_manager=None):
         """Initialize the missile manager."""
         self.missiles = []
         self.ground_fires = []
+        self.audio_manager = audio_manager
     
     def fire_missile(self, start_x: float, start_y: float, target_x: float, target_y: float,
                     damage: int = 120, explosion_radius: float = 150, special_attack: bool = False):
         """Fire a new missile."""
-        missile = Missile(start_x, start_y, target_x, target_y, damage, explosion_radius, special_attack=special_attack)
+        missile = Missile(start_x, start_y, target_x, target_y, damage, explosion_radius, special_attack=special_attack, audio_manager=self.audio_manager)
         
         # Set ground fire callback for special attacks
         if special_attack:
@@ -1343,10 +1364,8 @@ class MissileManager:
     def fire_grenade(self, start_x: float, start_y: float, target_x: float, target_y: float,
                     damage: int = 45, explosion_radius: float = 150, speed: float = 600):
         """Fire a grenade using missile system but with grenade appearance."""
-        missile = Missile(start_x, start_y, target_x, target_y, damage, explosion_radius, speed)
-        
-        # Mark this missile as a grenade for different visual rendering
-        missile.is_grenade = True
+        missile = Missile(start_x, start_y, target_x, target_y, damage, explosion_radius, speed, 
+                         audio_manager=self.audio_manager, is_grenade=True)
         
         # Disable trail for grenades - they should be simple bullets
         missile.max_trail_length = 0
@@ -1368,7 +1387,11 @@ class MissileManager:
             if missile.update(dt, enemies):
                 missiles_to_remove.append(missile)
         
+        # Clean up audio for removed missiles
         for missile in missiles_to_remove:
+            if missile.flight_sound_playing and missile.flight_sound_channel:
+                if missile.audio_manager:
+                    missile.audio_manager.stop_rocket_flight_sound(missile.flight_sound_channel)
             self.missiles.remove(missile)
         
         # Update ground fires

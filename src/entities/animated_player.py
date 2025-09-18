@@ -195,6 +195,10 @@ class AnimatedPlayer:
             self.reload_timer = 0.0
             print(f"Reloading... ({self.current_ammo}/{self.max_ammo})")
             
+            # Play reload sound
+            if hasattr(self, 'audio_manager') and self.audio_manager:
+                self.audio_manager.play_weapon_reload_sound(self.weapon_type)
+            
             # Reset minigun spin-up during reload - this should override any continuous fire
             if bullet_manager and self.weapon_type == "Minigun":
                 bullet_manager.stop_continuous_fire(self.weapon_type)
