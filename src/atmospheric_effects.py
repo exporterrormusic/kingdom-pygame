@@ -1,292 +1,347 @@
 """
-This module defines the AtmosphericEffects class, which manages 
-environmental effects like rain, snow, and cherry blossoms.
+Completely rewritten atmospheric effects system.
+This system creates particles that exist at fixed world coordinates,
+similar to how enemies work in the game.
 """
 
 import pygame as pg
 import random
-import time
 import math
-from typing import List, Tuple
+from typing import List, Tuple, Dict, Any
+
+class Particle:
+    """A single atmospheric particle with fixed world coordinates."""
+    
+    def __init__(self, world_x: float, world_y: float, particle_type: str):
+        self.world_x = world_x
+        self.world_y = world_y
+        self.type = particle_type
+        self.created_time = pg.time.get_ticks() / 1000.0
+        
+        if particle_type == "rain":
+            self.speed_y = random.uniform(400, 800)  # Pixels per second downward
+            self.speed_x = random.uniform(-50, 50)   # Slight horizontal drift
+            self.width = random.randint(2, 4)
+            self.height = random.randint(15, 25)
+            self.color = random.choice([
+                (180, 200, 255),
+                (160, 180, 255),
+                (200, 220, 255)
+            ])
+            
+        elif particle_type == "snow":
+            self.speed_y = random.uniform(60, 120)   # Slower falling
+            self.speed_x = random.uniform(-80, 80)   # More horizontal drift
+            self.size = random.randint(3, 8)
+            self.color = random.choice([
+                (255, 255, 255),
+                (240, 240, 255),
+                (220, 220, 240)
+            ])
+            
+        elif particle_type == "cherry_blossom":
+            self.speed_y = random.uniform(40, 100)   # Slow falling
+            self.speed_x = random.uniform(-120, 120) # Wide drift
+            self.size = random.randint(5, 11)  # Increased by 25% (was 4-9, now 5-11)
+            self.color = random.choice([
+                (255, 182, 193),  # Light pink
+                (255, 192, 203),  # Pink
+                (255, 174, 185),  # Rose pink
+                (255, 160, 180),  # Deeper pink
+                (240, 170, 190)   # Soft pink
+            ])
+            self.rotation = random.uniform(0, 2 * math.pi)
+            self.rotation_speed = random.uniform(-2, 2)  # Radians per second
+    
+    def update(self, dt: float, world_bounds: Tuple[int, int], player_pos=None):
+        """Update particle position in world space - they should fall naturally."""
+        # Particles fall down in world space (like rain/snow should)
+        self.world_y += self.speed_y * dt
+        self.world_x += self.speed_x * dt
+        
+        if self.type == "cherry_blossom":
+            self.rotation += self.rotation_speed * dt
+        
+        # Get world bounds (same as player system: -1920 to +1920, -1080 to +1080)
+        # world_bounds parameter is (world_width, world_height), convert to actual bounds
+        world_width, world_height = world_bounds
+        min_x, min_y = -world_width//2, -world_height//2
+        max_x, max_y = world_width//2, world_height//2
+        
+        # If particle falls below world, reset to top with random X position across entire world
+        if self.world_y > max_y + 100:
+            # Respawn at top of world with random X position across entire world width
+            self.world_x = random.uniform(min_x, max_x)
+            self.world_y = random.uniform(min_y - 200, min_y - 100)  # Spawn above world with variation
+            
+            # Debug: Print respawn info occasionally
+            if random.random() < 0.005:  # 0.5% chance to debug print (reduced frequency)
+                print(f"Particle respawned: new position ({self.world_x:.1f}, {self.world_y:.1f}), type: {self.type}")
+            
+        # Keep particles within world bounds - don't wrap, just constrain
+        # World bounds are -1920 to +1920 (X) and -1080 to +1080 (Y)
+        if self.world_x < min_x - 100:  # Allow small margin outside bounds
+            self.world_x = max_x + 100   # Move to opposite side with margin
+        elif self.world_x > max_x + 100:
+            self.world_x = min_x - 100   # Move to opposite side with margin
+    
+    def render(self, screen: pg.Surface, camera_offset: Tuple[float, float]):
+        """Render particle on screen using world-to-screen coordinate conversion like enemies."""
+        # Convert world coordinates to screen coordinates - ADD the offset like enemies do
+        screen_x = int(self.world_x + camera_offset[0])
+        screen_y = int(self.world_y + camera_offset[1])
+        
+        # For atmospheric effects, render all particles within a very generous area
+        # This ensures weather effects are visible across the entire playable map
+        screen_width = screen.get_width()
+        screen_height = screen.get_height()
+        
+        # Use extremely large margin to ensure atmospheric coverage across entire map
+        # This essentially renders particles if they could be anywhere near the viewport
+        margin = 2000  # Large enough to cover most of the map from any position
+        if (-margin <= screen_x <= screen_width + margin and 
+            -margin <= screen_y <= screen_height + margin):
+            
+            if self.type == "rain":
+                pg.draw.rect(screen, self.color, 
+                           (screen_x, screen_y, self.width, self.height))
+                           
+            elif self.type == "snow":
+                if self.size > 0:
+                    pg.draw.circle(screen, self.color, 
+                                 (screen_x, screen_y), self.size // 2 + 1)
+                                 
+            elif self.type == "cherry_blossom":
+                self._render_cherry_blossom(screen, screen_x, screen_y)
+                
+            return True  # Particle was rendered
+        return False  # Particle was off-screen
+    
+    def _render_cherry_blossom(self, screen: pg.Surface, screen_x: int, screen_y: int):
+        """Render a detailed cherry blossom flower with realistic petals."""
+        petal_count = 5  # Traditional sakura has 5 petals
+        base_petal_length = max(3, int(self.size * 0.8))  # Petal length
+        petal_width = max(2, int(self.size * 0.6))        # Petal width
+        
+        # Calculate petal positions with slight irregular spacing for realism
+        petal_angles = []
+        base_angle = 2 * math.pi / petal_count
+        for i in range(petal_count):
+            # Add small random variation to petal angle for natural look
+            angle_variation = random.uniform(-0.2, 0.2) if hasattr(self, '_petal_variations') else 0
+            angle = i * base_angle + self.rotation + angle_variation
+            petal_angles.append(angle)
+        
+        # Draw petals with heart-like shape (characteristic of sakura)
+        for angle in petal_angles:
+            # Main petal body (elongated oval)
+            petal_tip_x = screen_x + int(math.cos(angle) * base_petal_length)
+            petal_tip_y = screen_y + int(math.sin(angle) * base_petal_length)
+            
+            # Draw petal as small oval
+            petal_rect = pg.Rect(0, 0, petal_width, base_petal_length)
+            petal_rect.center = (
+                screen_x + int(math.cos(angle) * base_petal_length * 0.6),
+                screen_y + int(math.sin(angle) * base_petal_length * 0.6)
+            )
+            
+            # Draw main petal body
+            pg.draw.ellipse(screen, self.color, petal_rect)
+            
+            # Add petal tip highlight for depth
+            tip_color = (min(255, self.color[0] + 20), 
+                        min(255, self.color[1] + 20), 
+                        min(255, self.color[2] + 20))
+            pg.draw.circle(screen, tip_color, (petal_tip_x, petal_tip_y), max(1, petal_width // 3))
+            
+            # Add small petal indent at the tip (sakura characteristic)
+            indent_x = petal_tip_x + int(math.cos(angle) * 1)
+            indent_y = petal_tip_y + int(math.sin(angle) * 1)
+            indent_color = (max(0, self.color[0] - 30),
+                           max(0, self.color[1] - 20),
+                           max(0, self.color[2] - 20))
+            pg.draw.circle(screen, indent_color, (indent_x, indent_y), 1)
+        
+        # Draw flower center with stamen details
+        center_size = max(2, self.size // 3)
+        
+        # Outer center (calyx)
+        pg.draw.circle(screen, (200, 255, 200), (screen_x, screen_y), center_size)
+        
+        # Inner center (stamen)
+        stamen_color = (255, 255, 150)  # Light yellow
+        pg.draw.circle(screen, stamen_color, (screen_x, screen_y), max(1, center_size // 2))
+        
+        # Add tiny stamen dots for detail
+        if center_size >= 3:
+            for i in range(3):
+                stamen_angle = i * (2 * math.pi / 3) + self.rotation * 0.5
+                stamen_x = screen_x + int(math.cos(stamen_angle) * (center_size // 3))
+                stamen_y = screen_y + int(math.sin(stamen_angle) * (center_size // 3))
+                pg.draw.circle(screen, (255, 200, 100), (stamen_x, stamen_y), 1)
+
 
 class AtmosphericEffects:
-    """Manages atmospheric effects like rain, snow, and cherry blossoms."""
+    """Manages atmospheric effects with particles at fixed world coordinates."""
     
-    def __init__(self, screen_width: int, screen_height: int):
-        """Initialize atmospheric effects manager."""
-        self.screen_width = screen_width
-        self.screen_height = screen_height
-        # World-based atmospheric effects
-        self.world_width = 3840
-        self.world_height = 2160  
-        self.particles: List[dict] = []
-        self.current_atmosphere: str = "none"
+    def __init__(self, world_width: int, world_height: int):
+        self.world_width = world_width
+        self.world_height = world_height
+        self.particles: List[Particle] = []
+        self.current_atmosphere = "none"
+        # Use same coordinate system as player/enemies: center at (0,0)
+        self.world_bounds = (-world_width//2, -world_height//2, world_width//2, world_height//2)  # (-1920, -1080, 1920, 1080)
+        self.player_pos = (0, 0)  # Track player position for respawning
         
-        # Lightning system for rain effects
+        # Lightning system
         self.lightning_timer = 0.0
-        self.lightning_flash = False
+        self.lightning_active = False
         self.lightning_duration = 0.0
-        self.next_lightning = random.uniform(3.0, 8.0)  # Random time until next lightning
+        self.next_lightning_time = 0.0
         
-        # Footprint tracking (these DO use world coordinates)
-        self.footprints: List[dict] = []
-        self.last_footprint_time = 0
-    
-    def set_atmosphere(self, atmosphere_type: str):
-        """Set the current atmospheric effect (rain, snow, cherry_blossom)."""
+        # Debug info
+        self.debug_counter = 0
+        
+    def set_atmosphere(self, atmosphere_type: str, player_pos=None):
+        """Set atmospheric effect type and generate particles around player."""
         if self.current_atmosphere == atmosphere_type:
             return
             
+        print(f"Setting atmosphere to: {atmosphere_type}")
         self.current_atmosphere = atmosphere_type
         self.particles.clear()
         
         if atmosphere_type == "rain":
-            self._create_rain_particles(800)  # Increased for better coverage
+            self._generate_particles("rain", 1000, player_pos)
         elif atmosphere_type == "snow":
-            self._create_snow_particles(600)  # Increased for better coverage
+            self._generate_particles("snow", 800, player_pos)
         elif atmosphere_type == "cherry_blossom":
-            self._create_cherry_blossom_particles(400)  # Increased for better coverage
+            self._generate_particles("cherry_blossom", 500, player_pos)
     
-    def set_random_atmosphere(self):
-        """Set a random atmospheric effect."""
-        atmosphere_options = ["none", "rain", "snow", "cherry_blossom"]
-        random_atmosphere = random.choice(atmosphere_options)
-        print(f"DEBUG: Setting atmosphere to: {random_atmosphere}")
-        self.set_atmosphere(random_atmosphere)
-    
-    def _create_rain_particles(self, num_particles: int):
-        """Create particles for rain effect in world coordinates."""
-        print(f"DEBUG: Creating {num_particles} rain particles in world space")
-        for _ in range(num_particles):
-            particle = {
-                'x': random.uniform(0, self.world_width),
-                'y': random.uniform(0, self.world_height),
-                'speed': random.uniform(300, 600),  # Pixels per second
-                'width': 3,
-                'height': random.randint(15, 30),
-                'color': random.choice([(200, 200, 255), (180, 180, 255), (160, 160, 255)])
-            }
-            self.particles.append(particle)
-    
-    def _create_snow_particles(self, num_particles: int):
-        """Create particles for snow effect in world coordinates."""
-        print(f"DEBUG: Creating {num_particles} snow particles in world space")
-        for _ in range(num_particles):
-            particle = {
-                'x': random.uniform(0, self.world_width),
-                'y': random.uniform(0, self.world_height),
-                'speed': random.uniform(50, 150),  # Pixels per second
-                'drift': random.uniform(-30, 30),  # Horizontal drift pixels per second
-                'size': random.randint(2, 5),
-                'color': random.choice([(255, 255, 255), (240, 240, 255), (220, 220, 240)])
-            }
-            self.particles.append(particle)
-    
-    def _create_cherry_blossom_particles(self, num_particles: int):
-        """Create particles for cherry blossom effect in world coordinates."""
-        print(f"DEBUG: Creating {num_particles} cherry_blossom particles in world space")
-        for _ in range(num_particles):
-            particle = {
-                'x': random.uniform(0, self.world_width),
-                'y': random.uniform(0, self.world_height),
-                'speed': random.uniform(80, 200),  # Pixels per second
-                'drift': random.uniform(-100, 100),  # Horizontal drift pixels per second
-                'size': random.randint(4, 7),
-                'color': random.choice([(255, 182, 193), (255, 192, 203), (221, 160, 221)])
-            }
-            self.particles.append(particle)
-    
-    def update(self, dt: float):
-        """Update atmospheric particles in world space - particles move and wrap within world bounds."""
-        if self.current_atmosphere == "rain":
-            self._update_rain(dt)
-            self._update_lightning(dt)
-        elif self.current_atmosphere == "snow":
-            self._update_snow(dt)
-        elif self.current_atmosphere == "cherry_blossom":
-            self._update_cherry_blossom(dt)
-    
-    def _update_rain(self, dt: float):
-        """Update rain particles in world coordinates."""
-        for particle in self.particles:
-            particle['y'] += particle['speed'] * dt
-            if particle['y'] > self.world_height + 50:
-                particle['y'] = -50
-                particle['x'] = random.uniform(0, self.world_width)
-    
-    def _update_snow(self, dt: float):
-        """Update snow particles in world coordinates."""
-        for particle in self.particles:
-            particle['y'] += particle['speed'] * dt
-            particle['x'] += particle['drift'] * dt
-            if particle['y'] > self.world_height + 50:
-                particle['y'] = -50
-                particle['x'] = random.uniform(0, self.world_width)
-            # Keep particles within world bounds
-            if particle['x'] < -50:
-                particle['x'] = self.world_width + 50
-            elif particle['x'] > self.world_width + 50:
-                particle['x'] = -50
-    
-    def _update_cherry_blossom(self, dt: float):
-        """Update cherry blossom particles in world coordinates."""
-        for particle in self.particles:
-            particle['y'] += particle['speed'] * dt
-            particle['x'] += particle['drift'] * dt
-            if particle['y'] > self.world_height + 50:
-                particle['y'] = -50
-                particle['x'] = random.uniform(0, self.world_width)
-            # Keep particles within world bounds
-            if particle['x'] < -50:
-                particle['x'] = self.world_width + 50
-            elif particle['x'] > self.world_width + 50:
-                particle['x'] = -50
-    
-    def _update_lightning(self, dt: float):
-        """Update lightning effects for rain."""
-        self.lightning_timer += dt
+    def _generate_particles(self, particle_type: str, count: int, player_pos=None):
+        """Generate particles distributed across the entire world space, independent of player position."""
+        print(f"Generating {count} {particle_type} particles across entire world ({self.world_width}x{self.world_height})")
         
-        # Check if lightning should flash
-        if self.lightning_timer >= self.next_lightning and not self.lightning_flash:
-            self.lightning_flash = True
-            self.lightning_duration = 0.15  # Flash for 150ms
-            print("DEBUG: Lightning flash!")
+        # Generate particles across the ENTIRE world, not around player
+        min_x, min_y, max_x, max_y = self.world_bounds  # (-1920, -1080, 1920, 1080)
+        
+        for _ in range(count):
+            # Distribute particles randomly across the entire world
+            world_x = random.uniform(min_x, max_x)
+            world_y = random.uniform(min_y, max_y)
             
-        # Update lightning flash duration
-        if self.lightning_flash:
-            self.lightning_duration -= dt
-            if self.lightning_duration <= 0:
-                self.lightning_flash = False
-                self.lightning_timer = 0.0
-                self.next_lightning = random.uniform(4.0, 10.0)  # Next lightning in 4-10 seconds
+            particle = Particle(world_x, world_y, particle_type)
+            self.particles.append(particle)
     
-    def render(self, screen: pg.Surface, offset=(0, 0)):
-        """Render atmospheric particles using world coordinates with camera offset like enemies."""
-        if self.current_atmosphere != "none":
-            visible_count = 0
-            sample_particle = None
-            for particle in self.particles:
-                # Convert world coordinates to screen coordinates using camera offset
-                screen_x = int(particle['x'] - offset[0])
-                screen_y = int(particle['y'] - offset[1])
-                
-                # Store a sample particle for debugging
-                if sample_particle is None:
-                    sample_particle = particle
-                
-                # Only render if particle is visible on screen
-                if (-50 <= screen_x <= self.screen_width + 50 and 
-                    -50 <= screen_y <= self.screen_height + 50):
-                    visible_count += 1
-                    
-                    if self.current_atmosphere == "rain":
-                        # Render rain as vertical rectangles
-                        pg.draw.rect(screen, particle['color'], 
-                                   (screen_x, screen_y, particle['width'], particle['height']))
-                    elif self.current_atmosphere == "snow":
-                        # Render snow as circles
-                        if particle['size'] > 0:
-                            pg.draw.circle(screen, particle['color'], 
-                                         (screen_x, screen_y), particle['size']//2 + 1)
-                    elif self.current_atmosphere == "cherry_blossom":
-                        # Render cherry blossoms as flowers
-                        self._render_cherry_blossom(screen, screen_x, screen_y, particle['size'], particle['color'])
-            
-            # Only print debug info every 60 frames (once per second at 60 FPS)
+    def update(self, dt: float, player_pos=None):
+        """Update all particles and effects."""
+        if player_pos:
+            self.player_pos = player_pos
+            # Debug: Print player position occasionally
             if hasattr(self, 'debug_counter'):
-                self.debug_counter += 1
+                self.debug_counter = (self.debug_counter + 1) % 300  # Every 5 seconds at 60fps
+                if self.debug_counter == 0:
+                    print(f"Player position update: ({player_pos[0]:.1f}, {player_pos[1]:.1f})")
             else:
                 self.debug_counter = 0
-                
-            if visible_count > 0 and sample_particle and self.debug_counter % 60 == 0:
-                print(f"DEBUG: {visible_count}/{len(self.particles)} {self.current_atmosphere} particles visible. Sample world pos: ({sample_particle['x']:.1f}, {sample_particle['y']:.1f}), camera offset: ({offset[0]:.1f}, {offset[1]:.1f})")
-    
-    def _render_cherry_blossom(self, screen: pg.Surface, x: int, y: int, size: int, color: tuple):
-        """Render cherry blossom as a flower with petals."""
-        center_x, center_y = x, y
-        petal_size = max(3, size)
-        
-        # Draw 5 petals in a flower pattern
-        for i in range(5):
-            angle = (i / 5) * 2 * math.pi
-            petal_x = center_x + int(math.cos(angle) * (petal_size // 2))
-            petal_y = center_y + int(math.sin(angle) * (petal_size // 2))
             
-            # Draw petal as smaller circle
-            pg.draw.circle(screen, color, (petal_x, petal_y), max(2, petal_size//3))
-        
-        # Draw center
-        pg.draw.circle(screen, (255, 255, 200), (center_x, center_y), max(1, size//3))
-    
-    def add_footprint(self, x: float, y: float):
-        """Add a footprint at the given position."""
-        current_time = time.time()
-        if current_time - self.last_footprint_time > 0.2:  # Limit footprint frequency
-            self.footprints.append({
-                'x': x,
-                'y': y,
-                'time': current_time,
-                'alpha': 128
-            })
-            self.last_footprint_time = current_time
+        if self.current_atmosphere != "none":
+            # Update all particles with player position for respawning
+            for particle in self.particles:
+                particle.update(dt, (self.world_width, self.world_height), self.player_pos)
             
-            # Limit footprints to prevent memory issues
-            if len(self.footprints) > 50:
-                self.footprints = self.footprints[-25:]  # Keep only the most recent 25
+            # Update lightning for rain
+            if self.current_atmosphere == "rain":
+                self._update_lightning(dt)
     
-    def render_footprints(self, surface: pg.Surface, offset: Tuple[int, int]):
-        """Render footprints on the world surface."""
-        current_time = time.time()
-        footprints_to_remove = []
+    def _update_lightning(self, dt: float):
+        """Handle lightning flashes during rain."""
+        self.lightning_timer += dt
         
-        for i, footprint in enumerate(self.footprints):
-            # Fade footprints over time
-            age = current_time - footprint['time']
-            if age > 5.0:  # Remove after 5 seconds
-                footprints_to_remove.append(i)
-                continue
-                
-            # Calculate alpha based on age
-            alpha = max(0, int(128 * (1 - age / 5.0)))
-            if alpha > 0:
-                # Render footprint with world coordinates
-                screen_x = int(footprint['x'] - offset[0])
-                screen_y = int(footprint['y'] - offset[1])
-                
-                # Only render if visible on screen
-                if (-20 <= screen_x <= surface.get_width() + 20 and 
-                    -20 <= screen_y <= surface.get_height() + 20):
-                    # Draw a simple footprint
-                    pg.draw.circle(surface, (139, 69, 19, alpha), (screen_x, screen_y), 3)
+        # Start lightning flash
+        if self.lightning_timer >= self.next_lightning_time and not self.lightning_active:
+            self.lightning_active = True
+            self.lightning_duration = random.uniform(0.1, 0.2)  # Flash duration
+            self.next_lightning_time = self.lightning_timer + random.uniform(5.0, 12.0)
+            print("Lightning flash!")
         
-        # Remove old footprints
-        for i in reversed(footprints_to_remove):
-            self.footprints.pop(i)
+        # End lightning flash
+        if self.lightning_active:
+            self.lightning_duration -= dt
+            if self.lightning_duration <= 0:
+                self.lightning_active = False
     
-    def render_screen_overlays(self, screen: pg.Surface):
-        """Render screen-wide atmospheric overlays."""
-        if self.current_atmosphere == "rain":
-            # Add lightning flash overlay
-            if self.lightning_flash:
-                flash_overlay = pg.Surface((self.screen_width, self.screen_height))
-                flash_overlay.set_alpha(80)
-                flash_overlay.fill((255, 255, 255))  # Bright white flash
-                screen.blit(flash_overlay, (0, 0))
+    def render(self, screen: pg.Surface, camera_offset: Tuple[float, float]):
+        """Render all visible particles."""
+        if self.current_atmosphere == "none":
+            return
+            
+        visible_particles = 0
+        sample_particle = None
+        left_particles = 0
+        right_particles = 0
+        left_visible = 0
+        right_visible = 0
+        
+        for particle in self.particles:
+            # Count particles by side
+            if particle.world_x < 0:
+                left_particles += 1
             else:
-                # Add a slight blue overlay for rain
-                overlay = pg.Surface((self.screen_width, self.screen_height))
-                overlay.set_alpha(20)
-                overlay.fill((100, 150, 200))  # Light blue
-                screen.blit(overlay, (0, 0))
+                right_particles += 1
+                
+            if particle.render(screen, camera_offset):
+                visible_particles += 1
+                if particle.world_x < 0:
+                    left_visible += 1
+                else:
+                    right_visible += 1
+                if sample_particle is None:
+                    sample_particle = particle
+        
+        # Debug output (occasional)
+        self.debug_counter += 1
+        if self.debug_counter % 600 == 0 and sample_particle:  # Every 10 seconds at 60 FPS
+            print(f"Atmospheric effects: {visible_particles}/{len(self.particles)} {self.current_atmosphere} particles visible")
+    
+    def render_screen_effects(self, screen: pg.Surface):
+        """Render screen-wide atmospheric effects (tints, lightning)."""
+        if self.current_atmosphere == "none":
+            return
+            
+        screen_width = screen.get_width()
+        screen_height = screen.get_height()
+        
+        if self.current_atmosphere == "rain":
+            if self.lightning_active:
+                # Lightning flash - bright white overlay
+                flash_surface = pg.Surface((screen_width, screen_height))
+                flash_surface.fill((255, 255, 255))
+                flash_surface.set_alpha(100)
+                screen.blit(flash_surface, (0, 0))
+            else:
+                # Rain tint - subtle blue
+                tint_surface = pg.Surface((screen_width, screen_height))
+                tint_surface.fill((100, 150, 200))
+                tint_surface.set_alpha(25)
+                screen.blit(tint_surface, (0, 0))
+                
         elif self.current_atmosphere == "snow":
-            # Add a slight white/blue overlay for snow
-            overlay = pg.Surface((self.screen_width, self.screen_height))
-            overlay.set_alpha(15)
-            overlay.fill((200, 220, 255))  # Light blue-white
-            screen.blit(overlay, (0, 0))
+            # Snow tint - subtle blue-white
+            tint_surface = pg.Surface((screen_width, screen_height))
+            tint_surface.fill((200, 220, 255))
+            tint_surface.set_alpha(20)
+            screen.blit(tint_surface, (0, 0))
+            
         elif self.current_atmosphere == "cherry_blossom":
-            # Add a slight pink overlay for cherry blossoms
-            overlay = pg.Surface((self.screen_width, self.screen_height))
-            overlay.set_alpha(10)
-            overlay.fill((255, 200, 220))  # Light pink
-            screen.blit(overlay, (0, 0))
+            # Cherry blossom tint - subtle pink
+            tint_surface = pg.Surface((screen_width, screen_height))
+            tint_surface.fill((255, 200, 220))
+            tint_surface.set_alpha(15)
+            screen.blit(tint_surface, (0, 0))
+    
+    def set_random_atmosphere(self, player_pos=None):
+        """Set a random atmospheric effect."""
+        atmosphere_types = ["none", "rain", "snow", "cherry_blossom"]
+        selected = random.choice(atmosphere_types)
+        self.set_atmosphere(selected, player_pos)

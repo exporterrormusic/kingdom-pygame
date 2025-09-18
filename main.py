@@ -124,7 +124,7 @@ class Game:
         self.missile_manager = MissileManager()
         
         # Initialize atmospheric effects
-        self.atmospheric_effects = AtmosphericEffects(self.screen_width, self.screen_height)
+        self.atmospheric_effects = AtmosphericEffects(3840, 2160)  # World dimensions
         
         # Import and initialize minigun effects manager
         from src.minigun_effects import MinigunEffectsManager
@@ -255,7 +255,7 @@ class Game:
                 char_config = self.character_manager.get_character_config(self.selected_character)
                 
                 self.player = AnimatedPlayer(
-                    0, 0,  # Spawn at world center (base location)
+                    0, 0,  # Spawn at world center (0,0 in player coordinate system = center)
                     char_path, frame_width, frame_height,
                     self.state_manager.enhanced_menu.audio_manager,
                     self.selected_character,
@@ -301,8 +301,10 @@ class Game:
         self.slash_effect_manager = SlashEffectManager()
         
         # Initialize atmospheric effects and set random atmosphere for new level
-        self.atmospheric_effects = AtmosphericEffects(self.screen_width, self.screen_height)
-        self.atmospheric_effects.set_random_atmosphere()
+        self.atmospheric_effects = AtmosphericEffects(3840, 2160)  # World dimensions
+        # Pass player position directly - both systems use same coordinate system centered at (0,0)
+        player_pos = (self.player.pos.x, self.player.pos.y) if hasattr(self, 'player') and self.player else None
+        self.atmospheric_effects.set_random_atmosphere(player_pos)
         
         # Start new survival match tracking
         self.score_manager.start_new_match(self.game_time)
@@ -1536,9 +1538,7 @@ class Game:
                 if not hasattr(self, 'last_footprint_time'):
                     self.last_footprint_time = 0
                 
-                if self.game_time - self.last_footprint_time > 0.3:  # Footprint every 0.3 seconds
-                    self.atmospheric_effects.add_footprint(self.player.pos.x, self.player.pos.y)
-                    self.last_footprint_time = self.game_time
+                # Footprints have been removed from new atmospheric effects system
             
             # Update managers
             self.bullet_manager.update(self.dt, self.game_time, self.world_manager)
@@ -1550,9 +1550,10 @@ class Game:
             self.effects_manager.update(self.dt, self.player.pos)
             self.slash_effect_manager.update(self.dt)
             
-            # Update atmospheric effects (now world-space, so they need camera offset for player proximity spawning)
-            camera_offset = (-self.camera_x, -self.camera_y)
-            self.atmospheric_effects.update(self.dt)
+            # Update atmospheric effects with player position for proper particle respawning
+            # Both player and atmospheric systems use same coordinate system centered at (0,0)
+            player_pos = (self.player.pos.x, self.player.pos.y) if self.player else None
+            self.atmospheric_effects.update(self.dt, player_pos)
             
             # Update minigun effects if player is using minigun
             if self.player.weapon_type == "Minigun":
@@ -1768,9 +1769,6 @@ class Game:
             # Shell casings disabled
             self.minigun_effects_manager.render_shell_casings(virtual_surface, virtual_offset)
             
-            # Render footprints in world space (they need to be on the virtual surface to scale properly)
-            self.atmospheric_effects.render_footprints(virtual_surface, virtual_offset)
-            
             # Render atmospheric effects particles in world space (they need to be on the virtual surface)
             self.atmospheric_effects.render(virtual_surface, virtual_offset)
             
@@ -1783,7 +1781,7 @@ class Game:
                 self.screen.blit(virtual_surface, (0, 0))
             
             # Render atmospheric screen overlays (storm tint, lightning) on top of everything
-            self.atmospheric_effects.render_screen_overlays(self.screen)            # Render map debug overlay (after scaling)
+            self.atmospheric_effects.render_screen_effects(self.screen)            # Render map debug overlay (after scaling)
             self.world_manager.render_map_debug(self.screen, self.calculate_offset())
             
             # Render game UI
