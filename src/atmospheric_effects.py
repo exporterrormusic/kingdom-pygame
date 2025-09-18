@@ -74,9 +74,9 @@ class Particle:
             self.world_x = random.uniform(min_x, max_x)
             self.world_y = random.uniform(min_y - 200, min_y - 100)  # Spawn above world with variation
             
-            # Debug: Print respawn info occasionally
-            if random.random() < 0.005:  # 0.5% chance to debug print (reduced frequency)
-                print(f"Particle respawned: new position ({self.world_x:.1f}, {self.world_y:.1f}), type: {self.type}")
+            # Debug: Print respawn info occasionally (reduced frequency for performance)
+            if random.random() < 0.002:  # 0.2% chance (reduced from 0.5%)
+                print(f"Particle respawned: ({self.world_x:.0f}, {self.world_y:.0f}), type: {self.type}")
             
         # Keep particles within world bounds - don't wrap, just constrain
         # World bounds are -1920 to +1920 (X) and -1080 to +1080 (Y)
@@ -92,15 +92,20 @@ class Particle:
         screen_y = int(self.world_y + camera_offset[1])
         
         # For atmospheric effects, render all particles within a very generous area
-        # This ensures weather effects are visible across the entire playable map
+        # Use fast integer operations and pre-calculate screen bounds
         screen_width = screen.get_width()
         screen_height = screen.get_height()
         
-        # Use extremely large margin to ensure atmospheric coverage across entire map
-        # This essentially renders particles if they could be anywhere near the viewport
-        margin = 2000  # Large enough to cover most of the map from any position
-        if (-margin <= screen_x <= screen_width + margin and 
-            -margin <= screen_y <= screen_height + margin):
+        # Pre-calculate screen bounds with margin for efficiency
+        margin = 1000  # Reduced from 2000 for better performance while maintaining coverage
+        min_screen_x = -margin
+        max_screen_x = screen_width + margin
+        min_screen_y = -margin
+        max_screen_y = screen_height + margin
+        
+        # Fast bounds check using pre-calculated values
+        if (min_screen_x <= screen_x <= max_screen_x and 
+            min_screen_y <= screen_y <= max_screen_y):
             
             if self.type == "rain":
                 pg.draw.rect(screen, self.color, 
@@ -118,67 +123,43 @@ class Particle:
         return False  # Particle was off-screen
     
     def _render_cherry_blossom(self, screen: pg.Surface, screen_x: int, screen_y: int):
-        """Render a detailed cherry blossom flower with realistic petals."""
-        petal_count = 5  # Traditional sakura has 5 petals
-        base_petal_length = max(3, int(self.size * 0.8))  # Petal length
-        petal_width = max(2, int(self.size * 0.6))        # Petal width
+        """Render a detailed but optimized cherry blossom flower."""
+        # Pre-calculate values once per particle
+        petal_length = max(3, int(self.size * 0.8))
+        petal_width = max(2, int(self.size * 0.6))
+        base_angle = 1.256637  # 2π/5 pre-calculated
         
-        # Calculate petal positions with slight irregular spacing for realism
-        petal_angles = []
-        base_angle = 2 * math.pi / petal_count
-        for i in range(petal_count):
-            # Add small random variation to petal angle for natural look
-            angle_variation = random.uniform(-0.2, 0.2) if hasattr(self, '_petal_variations') else 0
-            angle = i * base_angle + self.rotation + angle_variation
-            petal_angles.append(angle)
-        
-        # Draw petals with heart-like shape (characteristic of sakura)
-        for angle in petal_angles:
-            # Main petal body (elongated oval)
-            petal_tip_x = screen_x + int(math.cos(angle) * base_petal_length)
-            petal_tip_y = screen_y + int(math.sin(angle) * base_petal_length)
+        # Draw 5 petals with optimized rendering
+        for i in range(5):
+            angle = i * base_angle + self.rotation
+            cos_angle = math.cos(angle)
+            sin_angle = math.sin(angle)
             
-            # Draw petal as small oval
-            petal_rect = pg.Rect(0, 0, petal_width, base_petal_length)
-            petal_rect.center = (
-                screen_x + int(math.cos(angle) * base_petal_length * 0.6),
-                screen_y + int(math.sin(angle) * base_petal_length * 0.6)
-            )
+            # Calculate petal position once
+            petal_offset_x = int(cos_angle * petal_length * 0.6)
+            petal_offset_y = int(sin_angle * petal_length * 0.6)
+            petal_center_x = screen_x + petal_offset_x
+            petal_center_y = screen_y + petal_offset_y
             
-            # Draw main petal body
+            # Draw main petal as ellipse (single draw call per petal)
+            petal_rect = pg.Rect(petal_center_x - petal_width//2, petal_center_y - petal_length//2, 
+                                petal_width, petal_length)
             pg.draw.ellipse(screen, self.color, petal_rect)
             
-            # Add petal tip highlight for depth
-            tip_color = (min(255, self.color[0] + 20), 
-                        min(255, self.color[1] + 20), 
-                        min(255, self.color[2] + 20))
-            pg.draw.circle(screen, tip_color, (petal_tip_x, petal_tip_y), max(1, petal_width // 3))
-            
-            # Add small petal indent at the tip (sakura characteristic)
-            indent_x = petal_tip_x + int(math.cos(angle) * 1)
-            indent_y = petal_tip_y + int(math.sin(angle) * 1)
-            indent_color = (max(0, self.color[0] - 30),
-                           max(0, self.color[1] - 20),
-                           max(0, self.color[2] - 20))
-            pg.draw.circle(screen, indent_color, (indent_x, indent_y), 1)
+            # Optional: Add single tip highlight only for larger particles (performance gate)
+            if self.size >= 7:
+                tip_x = screen_x + int(cos_angle * petal_length)
+                tip_y = screen_y + int(sin_angle * petal_length)
+                tip_color = (min(255, self.color[0] + 25), 
+                            min(255, self.color[1] + 25), 
+                            min(255, self.color[2] + 25))
+                pg.draw.circle(screen, tip_color, (tip_x, tip_y), 1)
         
-        # Draw flower center with stamen details
+        # Simplified center (2 draw calls instead of 5+)
         center_size = max(2, self.size // 3)
-        
-        # Outer center (calyx)
         pg.draw.circle(screen, (200, 255, 200), (screen_x, screen_y), center_size)
-        
-        # Inner center (stamen)
-        stamen_color = (255, 255, 150)  # Light yellow
-        pg.draw.circle(screen, stamen_color, (screen_x, screen_y), max(1, center_size // 2))
-        
-        # Add tiny stamen dots for detail
-        if center_size >= 3:
-            for i in range(3):
-                stamen_angle = i * (2 * math.pi / 3) + self.rotation * 0.5
-                stamen_x = screen_x + int(math.cos(stamen_angle) * (center_size // 3))
-                stamen_y = screen_y + int(math.sin(stamen_angle) * (center_size // 3))
-                pg.draw.circle(screen, (255, 200, 100), (stamen_x, stamen_y), 1)
+        if center_size > 1:
+            pg.draw.circle(screen, (255, 255, 150), (screen_x, screen_y), max(1, center_size // 2))
 
 
 class AtmosphericEffects:
@@ -212,11 +193,11 @@ class AtmosphericEffects:
         self.particles.clear()
         
         if atmosphere_type == "rain":
-            self._generate_particles("rain", 1000, player_pos)
+            self._generate_particles("rain", 600, player_pos)  # Reduced from 1000
         elif atmosphere_type == "snow":
-            self._generate_particles("snow", 800, player_pos)
+            self._generate_particles("snow", 400, player_pos)  # Reduced from 800
         elif atmosphere_type == "cherry_blossom":
-            self._generate_particles("cherry_blossom", 500, player_pos)
+            self._generate_particles("cherry_blossom", 300, player_pos)  # Reduced from 500
     
     def _generate_particles(self, particle_type: str, count: int, player_pos=None):
         """Generate particles distributed across the entire world space, independent of player position."""
@@ -299,10 +280,10 @@ class AtmosphericEffects:
                 if sample_particle is None:
                     sample_particle = particle
         
-        # Debug output (occasional)
+        # Debug output (occasional) - reduced frequency for performance
         self.debug_counter += 1
-        if self.debug_counter % 600 == 0 and sample_particle:  # Every 10 seconds at 60 FPS
-            print(f"Atmospheric effects: {visible_particles}/{len(self.particles)} {self.current_atmosphere} particles visible")
+        if self.debug_counter % 1200 == 0 and sample_particle:  # Every 20 seconds at 60 FPS
+            print(f"Atmospheric effects: {visible_particles}/{len(self.particles)} {self.current_atmosphere} particles")
     
     def render_screen_effects(self, screen: pg.Surface):
         """Render screen-wide atmospheric effects (tints, lightning)."""
