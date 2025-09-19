@@ -150,7 +150,12 @@ class Game:
         self.keys_just_pressed = []
         
         # Modern multiplayer systems
-        self.multiplayer_lobby = ModernMultiplayerLobby(self.screen_width, self.screen_height)
+        self.multiplayer_lobby = ModernMultiplayerLobby(
+            self.screen_width, self.screen_height, 
+            self.character_manager, 
+            self.state_manager.enhanced_menu.audio_manager,
+            self.state_manager.enhanced_menu  # Pass enhanced_menu for background rendering
+        )
         self.network_manager = None
         self.game_synchronizer = None
         self.multiplayer_renderer = MultiplayerRenderer(self.character_manager)
@@ -303,9 +308,42 @@ class Game:
     def create_player_from_selection(self):
         """Create player based on character selection."""
         if not self.selected_character:
-            # Fallback to geometric player at world center
+            # Create AnimatedPlayer with default character instead of basic Player
             print("No character selected, using geometric player")
-            self.player = Player(0, 0)  # Spawn at world center (base location)
+            # Use AnimatedPlayer with default character to have proper combat and sprite capabilities
+            try:
+                from src.entities.animated_player import AnimatedPlayer
+                # Try to use a default character (like 'cecil') if available
+                default_character = 'cecil'
+                char_path = self.character_manager.get_character_path(default_character)
+                if char_path and os.path.exists(char_path):
+                    char_config = self.character_manager.get_character_config(default_character)
+                    # Load sprite to get dimensions
+                    temp_sprite = pg.image.load(char_path)
+                    frame_width = temp_sprite.get_width() // 3
+                    frame_height = temp_sprite.get_height() // 4
+                    
+                    self.player = AnimatedPlayer(
+                        0, 0, char_path,
+                        frame_width, frame_height,
+                        getattr(self, 'audio_manager', None),
+                        default_character, 
+                        default_character.title(),
+                        char_config
+                    )
+                    print(f"Created default AnimatedPlayer with character: {default_character}")
+                else:
+                    # Create AnimatedPlayer without sprite (geometric rendering)
+                    self.player = AnimatedPlayer(
+                        0, 0, None,
+                        32, 32,
+                        getattr(self, 'audio_manager', None)
+                    )
+                    print("Created geometric AnimatedPlayer")
+            except (ImportError, Exception) as e:
+                # Fallback to basic player if AnimatedPlayer creation fails
+                self.player = Player(0, 0)
+                print(f"Fallback to basic Player: {e}")
             return
         
         # Get character sprite path
@@ -553,7 +591,7 @@ class Game:
                     elif self.state_manager.is_paused():
                         # Let the pause menu handler deal with escape in pause state
                         pass
-                    # For all other states (including PLAY_MODE_SELECT), let them handle escape first
+                    # For all other states, let them handle escape first
                     # The global handler will run later if they don't handle it
                 
                 # Debug toggles (only in game)
@@ -571,17 +609,34 @@ class Game:
                 if self.state_manager.is_character_select():
                     result = self.character_selection.handle_input(event)
                     if result == "select":
-                        # Character selected, start game
+                        # Character selected
                         self.selected_character = self.character_selection.get_selected_character()
                         self.character_manager.set_current_character(self.selected_character)
-                        self.reset_game()
-                        self.state_manager.start_game_session()  # Mark game session as active
-                        self.state_manager.change_state(GameState.PLAYING)
-                        # Start battle music
-                        self.state_manager.enhanced_menu.start_battle_music()
+                        
+                        # Update multiplayer lobby preferred character if we came from there
+                        if self.state_manager.previous_state == GameState.MULTIPLAYER_LOBBY:
+                            self.multiplayer_lobby.preferred_character = self.selected_character
+                            # Update character selection index to match
+                            if self.selected_character in self.multiplayer_lobby.available_characters:
+                                self.multiplayer_lobby.character_selection = self.multiplayer_lobby.available_characters.index(self.selected_character)
+                            # Return to multiplayer lobby
+                            self.state_manager.change_state(GameState.MULTIPLAYER_LOBBY)
+                        else:
+                            # Regular single player flow - start game
+                            self.reset_game()
+                            self.state_manager.start_game_session()  # Mark game session as active
+                            self.state_manager.change_state(GameState.PLAYING)
+                            # Start battle music
+                            self.state_manager.enhanced_menu.start_battle_music()
                     elif result == "back":
-                        # Go back to play mode selection
-                        self.state_manager.change_state(GameState.PLAY_MODE_SELECT)
+                        # Go back to previous screen
+                        if self.state_manager.previous_state == GameState.MULTIPLAYER_LOBBY:
+                            self.state_manager.change_state(GameState.MULTIPLAYER_LOBBY)
+                        else:
+                            # Go back to play mode selection
+                            self.state_manager.change_state(GameState.PLAY_MODE_SELECT)
+                            # Restore main menu music when backing out
+                            self.state_manager.enhanced_menu.start_main_menu_music()
                         # ESC was handled by character selection - remove from keys_just_pressed to prevent fallback
                         if pg.K_ESCAPE in self.keys_just_pressed:
                             self.keys_just_pressed.remove(pg.K_ESCAPE)
@@ -595,12 +650,14 @@ class Game:
                     if self.state_manager.get_state() == GameState.MENU:
                         result = self.state_manager.enhanced_menu.handle_main_menu_mouse_click(mouse_pos)
                         if result:
-                            if result == "new_game":
+                            if result == "single_player":
                                 self.state_manager.change_state(GameState.CHARACTER_SELECT)
+                            elif result == "local_multiplayer":
+                                self.state_manager.change_state(GameState.LOCAL_MULTIPLAYER)
+                            elif result == "online_multiplayer":
+                                self.state_manager.change_state(GameState.MULTIPLAYER_LOBBY)
                             elif result == "load_game":
                                 self.state_manager.change_state(GameState.SAVE_LOAD)
-                            elif result == "play":
-                                self.state_manager.change_state(GameState.PLAY_MODE_SELECT)
                             elif result == "settings":
                                 self.state_manager.change_state(GameState.SETTINGS)
                             elif result == "quit":
@@ -614,7 +671,9 @@ class Game:
                         result = self.state_manager.enhanced_menu.handle_play_mode_input(pg.event.Event(pg.MOUSEBUTTONDOWN, {'button': 1, 'pos': mouse_pos}))
                         if result == "new_game":
                             self.state_manager.change_state(GameState.CHARACTER_SELECT)
-                        elif result == "multiplayer":
+                        elif result == "local_multiplayer":
+                            self.state_manager.change_state(GameState.LOCAL_MULTIPLAYER)
+                        elif result == "online_multiplayer":
                             self.state_manager.change_state(GameState.MULTIPLAYER_LOBBY)
                     # Handle pause menu mouse clicks
                     elif self.state_manager.is_paused():
@@ -630,14 +689,35 @@ class Game:
                     elif self.state_manager.is_character_select():
                         result = self.character_selection.handle_mouse_click(mouse_pos)
                         if result == "select":
+                            # Character selected
                             self.selected_character = self.character_selection.get_selected_character()
                             self.character_manager.set_current_character(self.selected_character)
-                            self.reset_game()
-                            self.state_manager.start_game_session()  # Mark game session as active
-                            self.state_manager.change_state(GameState.PLAYING)
-                            self.state_manager.enhanced_menu.start_battle_music()
+                            
+                            # Update multiplayer lobby preferred character if we came from there
+                            if self.state_manager.previous_state == GameState.MULTIPLAYER_LOBBY:
+                                self.multiplayer_lobby.preferred_character = self.selected_character
+                                # Update character selection index to match
+                                if self.selected_character in self.multiplayer_lobby.available_characters:
+                                    self.multiplayer_lobby.character_selection = self.multiplayer_lobby.available_characters.index(self.selected_character)
+                                # Return to multiplayer lobby
+                                self.state_manager.change_state(GameState.MULTIPLAYER_LOBBY)
+                            else:
+                                # Regular single player flow - start game
+                                self.reset_game()
+                                self.state_manager.start_game_session()  # Mark game session as active
+                                self.state_manager.change_state(GameState.PLAYING)
+                                self.state_manager.enhanced_menu.start_battle_music()
                         elif result == "back":
-                            self.state_manager.change_state(GameState.MENU)
+                            # Go back to previous screen
+                            if self.state_manager.previous_state == GameState.MULTIPLAYER_LOBBY:
+                                self.state_manager.change_state(GameState.MULTIPLAYER_LOBBY)
+                            else:
+                                self.state_manager.change_state(GameState.MENU)
+                    # Handle multiplayer lobby mouse clicks
+                    elif self.state_manager.is_multiplayer_lobby():
+                        result = self.multiplayer_lobby.handle_mouse_click(mouse_pos)
+                        if result == "character_select":
+                            self.state_manager.change_state(GameState.CHARACTER_SELECT)
                     # Handle quit confirmation mouse clicks
                     elif self.state_manager.is_quit_confirmation():
                         if not self.state_manager.handle_quit_confirmation_mouse_click(mouse_pos):
@@ -693,6 +773,26 @@ class Game:
                         self.keys_just_pressed.remove(pg.K_ESCAPE)
                 elif not self.state_manager.handle_enhanced_menu_input(event):
                     self.running = False
+            elif self.state_manager.get_state() == GameState.PLAY_MODE_SELECT:
+                result = self.state_manager.enhanced_menu.handle_input(event)
+                if result == "new_game":
+                    self.state_manager.change_state(GameState.CHARACTER_SELECT)
+                elif result == "local_multiplayer":
+                    self.state_manager.change_state(GameState.LOCAL_MULTIPLAYER)
+                elif result == "online_multiplayer":
+                    self.state_manager.change_state(GameState.MULTIPLAYER_LOBBY)
+                elif result == "back":
+                    # ESC was handled by play mode selection - change state and completely stop processing this event
+                    self.state_manager.change_state(GameState.MENU)
+                    self.state_manager.enhanced_menu.set_state(MenuState.MAIN)
+                    if pg.K_ESCAPE in self.keys_just_pressed:
+                        self.keys_just_pressed.remove(pg.K_ESCAPE)
+                    # Break out of event processing completely to prevent any further handling
+                    break
+            elif self.state_manager.get_state() == GameState.LOCAL_MULTIPLAYER:
+                # Handle ESC key to go back to play mode selection
+                if event.type == pg.KEYDOWN and event.key == pg.K_ESCAPE:
+                    self.state_manager.change_state(GameState.PLAY_MODE_SELECT)
             elif self.state_manager.get_state() == GameState.SETTINGS:
                 result = self.state_manager.enhanced_menu.handle_input(event)
                 if result == "back":
@@ -704,20 +804,6 @@ class Game:
                         self.state_manager.change_state(GameState.PAUSED)
                     else:
                         self.state_manager.change_state(GameState.MENU)
-            elif self.state_manager.get_state() == GameState.PLAY_MODE_SELECT:
-                result = self.state_manager.enhanced_menu.handle_input(event)
-                if result == "new_game":
-                    self.state_manager.change_state(GameState.CHARACTER_SELECT)
-                elif result == "multiplayer":
-                    self.state_manager.change_state(GameState.MULTIPLAYER_LOBBY)
-                elif result == "back":
-                    # ESC was handled by play mode selection - change state and completely stop processing this event
-                    self.state_manager.change_state(GameState.MENU)
-                    self.state_manager.enhanced_menu.set_state(MenuState.MAIN)
-                    if pg.K_ESCAPE in self.keys_just_pressed:
-                        self.keys_just_pressed.remove(pg.K_ESCAPE)
-                    # Break out of event processing completely to prevent any further handling
-                    break
             elif self.state_manager.get_state() == GameState.SAVE_LOAD:
                 result = self.state_manager.enhanced_menu.handle_input(event)
                 if result and result.startswith("load_slot_"):
@@ -733,6 +819,9 @@ class Game:
                     # ESC was handled by multiplayer lobby - remove from keys_just_pressed to prevent fallback
                     if pg.K_ESCAPE in self.keys_just_pressed:
                         self.keys_just_pressed.remove(pg.K_ESCAPE)
+                elif result == "character_select":
+                    # Go to character selection from multiplayer lobby
+                    self.state_manager.change_state(GameState.CHARACTER_SELECT)
                 elif result == "start_game":
                     # Start multiplayer game
                     self._start_multiplayer_game()
@@ -807,7 +896,6 @@ class Game:
                 # For menu state, only show quit confirmation if we're in main menu
                 if self.state_manager.enhanced_menu.get_state() == MenuState.MAIN:
                     self.state_manager.show_quit_confirmation(current_state)
-            # Note: PLAY_MODE_SELECT handles its own escape key and should not trigger quit confirmation
             
         elif self.state_manager.is_playing():
             # Handle continuous game input
@@ -822,12 +910,16 @@ class Game:
             # Player input (if player exists)
             if self.player:
                 if hasattr(self.player, 'handle_input'):
-                    # AnimatedPlayer
-                    self.player.handle_input(keys, world_mouse_pos, self.game_time, 
-                                           self.effects_manager, self.add_camera_shake, mouse_buttons, self.bullet_manager)
-                else:
-                    # Regular Player - handle input manually
-                    self.player.handle_input(keys, world_mouse_pos, self.game_time, self.effects_manager, bullet_manager=self.bullet_manager)
+                    # Check if it's AnimatedPlayer or regular Player by checking method signature
+                    import inspect
+                    sig = inspect.signature(self.player.handle_input)
+                    param_count = len(sig.parameters)
+                    
+                    if param_count >= 7:  # AnimatedPlayer (7 params including self)
+                        self.player.handle_input(keys, world_mouse_pos, self.game_time, 
+                                               self.effects_manager, self.add_camera_shake, mouse_buttons, self.bullet_manager)
+                    else:  # Regular Player (5 params including self)
+                        self.player.handle_input(keys, world_mouse_pos, self.game_time, self.effects_manager, self.add_camera_shake)
                 
                 # Auto-collect cores near player (no key press needed)
                 collected_cores = self.world_manager.core_manager.try_collect_cores(self.player.pos)
@@ -1676,8 +1768,27 @@ class Game:
         self.state_manager.update(self.dt)
         
         # Update multiplayer lobby if active
-        if self.state_manager.get_state() == GameState.MULTIPLAYER_LOBBY:
+        current_state = self.state_manager.get_state()
+        if current_state == GameState.MULTIPLAYER_LOBBY:
+            print(f"[DEBUG] Main loop: In MULTIPLAYER_LOBBY state, calling lobby.update()")
             self.multiplayer_lobby.update(self.dt)
+            # Check for game start even when no input events occur
+            game_start_result = self.multiplayer_lobby.check_game_start_status()
+            if game_start_result:
+                print(f"[DEBUG] Main loop detected game start result: {game_start_result}")
+                if game_start_result == "start_game":
+                    print("[DEBUG] Main loop calling _start_multiplayer_game()")
+                    self._start_multiplayer_game()
+        else:
+            # Add debug to see what state we're actually in
+            if hasattr(current_state, 'name'):
+                state_name = current_state.name
+            else:
+                state_name = str(current_state)
+            # Only print state changes to avoid spam
+            if not hasattr(self, '_last_debug_state') or self._last_debug_state != state_name:
+                print(f"[DEBUG] Main loop: Current state is {state_name} (not MULTIPLAYER_LOBBY)")
+                self._last_debug_state = state_name
         
         # Update multiplayer synchronization during gameplay
         if self.is_multiplayer and self.game_synchronizer and self.state_manager.is_playing():
@@ -1878,14 +1989,14 @@ class Game:
         elif self.state_manager.get_state() == GameState.MENU:
             self.state_manager.render_enhanced_menu()
             
+        elif self.state_manager.get_state() == GameState.PLAY_MODE_SELECT:
+            self.state_manager.render_enhanced_menu()
+            
         elif self.state_manager.get_state() == GameState.SETTINGS:
             self.state_manager.render_settings()
             
         elif self.state_manager.get_state() == GameState.SAVE_LOAD:
             self.state_manager.render_save_load()
-            
-        elif self.state_manager.get_state() == GameState.PLAY_MODE_SELECT:
-            self.state_manager.render_play_mode_select()
             
         elif self.state_manager.is_character_select():
             self.character_selection.update(self.dt)
@@ -1893,6 +2004,9 @@ class Game:
             
         elif self.state_manager.get_state() == GameState.MULTIPLAYER_LOBBY:
             self.multiplayer_lobby.render(self.screen)
+            
+        elif self.state_manager.get_state() == GameState.LOCAL_MULTIPLAYER:
+            self._render_local_multiplayer()
             
         elif self.state_manager.is_playing():
             # Create a virtual surface for world rendering that can be scaled for zoom
@@ -2224,6 +2338,44 @@ class Game:
             # Instructions
             debug_info_text = self.small_font.render("F3 to toggle debug", True, (150, 150, 150))
             self.screen.blit(debug_info_text, (self.screen_width - 200, debug_y + 100))
+    
+    def _render_local_multiplayer(self):
+        """Render the local multiplayer screen with basic UI."""
+        # Clear screen with background
+        self.screen.fill((20, 25, 35))
+        
+        # Title
+        title_font = pg.font.Font(None, 96)
+        title_text = title_font.render("LOCAL MULTIPLAYER", True, (255, 255, 255))
+        title_rect = title_text.get_rect(center=(self.screen_width // 2, 200))
+        self.screen.blit(title_text, title_rect)
+        
+        # Subtitle
+        subtitle_font = pg.font.Font(None, 48)
+        subtitle_text = subtitle_font.render("Coming Soon!", True, (255, 255, 100))
+        subtitle_rect = subtitle_text.get_rect(center=(self.screen_width // 2, 300))
+        self.screen.blit(subtitle_text, subtitle_rect)
+        
+        # Description
+        desc_font = pg.font.Font(None, 32)
+        descriptions = [
+            "Local multiplayer will support:",
+            "• 2-4 players on the same screen",
+            "• Player 1: WASD + Mouse",
+            "• Player 2: Arrow Keys + Right Click", 
+            "• Additional players with controller support"
+        ]
+        
+        for i, desc in enumerate(descriptions):
+            desc_text = desc_font.render(desc, True, (200, 200, 200))
+            desc_rect = desc_text.get_rect(center=(self.screen_width // 2, 420 + i * 50))
+            self.screen.blit(desc_text, desc_rect)
+        
+        # Back instruction
+        back_font = pg.font.Font(None, 36)
+        back_text = back_font.render("Press ESC to go back", True, (150, 255, 150))
+        back_rect = back_text.get_rect(center=(self.screen_width // 2, 700))
+        self.screen.blit(back_text, back_rect)
     
     def run(self):
         """Main game loop."""
