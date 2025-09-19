@@ -49,21 +49,16 @@ class Dropdown:
     
     def handle_click(self, pos: Tuple[int, int]) -> Optional[str]:
         """Handle mouse click and return selected value if changed."""
-        print(f"[DEBUG] Dropdown.handle_click called with pos={pos}, is_open={self.is_open}")
-        
         # Check if clicking on main dropdown button
         if self.rect.collidepoint(pos):
-            print(f"[DEBUG] Click on main button, was_open={self.is_open}")
             # Toggle dropdown open/closed state
             self.is_open = not self.is_open
-            print(f"[DEBUG] Toggled to is_open={self.is_open}")
             if self.is_open:
                 self._update_dropdown_rects()
             return None
         
         # If dropdown is open and clicking on an option
         if self.is_open and self.dropdown_rect and self.dropdown_rect.collidepoint(pos):
-            print(f"[DEBUG] Click in expanded area")
             # Ensure option rects are up to date
             self._update_dropdown_rects()
             
@@ -423,17 +418,11 @@ class ModernMultiplayerLobby:
         # Check for incoming messages
         if hasattr(self.network_manager, '_receive_direct_message'):
             try:
-                print(f"[DEBUG] Calling _receive_direct_message...")
                 message = self.network_manager._receive_direct_message(timeout=0.1)
                 if message:
-                    print(f"[DEBUG] Lobby received network message: {message}")
                     self._handle_network_message(message)
-                else:
-                    print(f"[DEBUG] No message received from _receive_direct_message")
             except Exception as e:
                 print(f"Error processing network message: {e}")
-        else:
-            print(f"[DEBUG] Network manager doesn't have _receive_direct_message method")
     
     def _handle_network_message(self, message: dict):
         """Handle incoming network message."""
@@ -449,21 +438,51 @@ class ModernMultiplayerLobby:
             player_name = data.get('player_name', 'Unknown')
             is_ready = data.get('is_ready', False)
             
-            print(f"Received ready state: {player_name} ({'ready' if is_ready else 'not ready'})")
+            print(f"[READY] Received ready state: {player_name} ({'ready' if is_ready else 'not ready'})")
+            print(f"[READY] Message from player_id: {player_id}, my role: {'host' if self.is_host else 'client'}")
             
             # Update the peer's ready state in network manager
             if hasattr(self.network_manager, 'peers') and player_id in self.network_manager.peers:
                 self.network_manager.peers[player_id].ready = is_ready
-                print(f"Updated peer {player_id} ready state to {is_ready}")
+                print(f"[READY] Updated peer {player_id} ready state to {is_ready}")
                 
                 # Also update in the peer list if using get_peer_list
                 if hasattr(self.network_manager, 'get_peer_list'):
                     peer_list = self.network_manager.get_peer_list()
-                    for peer in peer_list:
+                    print(f"[READY] Current peer list has {len(peer_list)} peers")
+                    for i, peer in enumerate(peer_list):
+                        print(f"[READY] Peer {i}: {peer.display_name} (ID: {peer.peer_id}) ready={getattr(peer, 'ready', 'NO_READY_ATTR')}")
                         if peer.peer_id == player_id:
                             peer.ready = is_ready
-                            print(f"Also updated peer in peer_list: {peer.display_name} ready={is_ready}")
+                            print(f"[READY] Updated peer in peer_list: {peer.display_name} ready={is_ready}")
                             break
+                    else:
+                        print(f"[READY] Could not find peer {player_id} in peer list")
+            else:
+                print(f"[READY] Warning: Could not find peer {player_id} to update ready state")
+                if hasattr(self.network_manager, 'peers'):
+                    print(f"[READY] Available peers: {list(self.network_manager.peers.keys())}")
+                    
+                    # Handle case where host peer ID might be different
+                    # Check if this is a message from the host and try to find the host in peer list
+                    if hasattr(self.network_manager, 'get_peer_list'):
+                        peer_list = self.network_manager.get_peer_list()
+                        host_peer = None
+                        for peer in peer_list:
+                            if getattr(peer, 'is_host', False):
+                                host_peer = peer
+                                break
+                        
+                        if host_peer:
+                            print(f"[READY] Found host peer with different ID: {host_peer.peer_id}, updating ready state")
+                            host_peer.ready = is_ready
+                            # Also update in the peers dict if it exists with the host's actual ID
+                            if host_peer.peer_id in self.network_manager.peers:
+                                self.network_manager.peers[host_peer.peer_id].ready = is_ready
+                        else:
+                            print(f"[READY] Could not find host peer in peer list")
+                else:
+                    print(f"[READY] No peers attribute on network manager")
         
         elif message_type == 'lobby_setting_change':
             # Handle lobby setting changes from host
@@ -1025,7 +1044,6 @@ class ModernMultiplayerLobby:
         # Send to all connected peers using the network manager's send_message
         if hasattr(self.network_manager, 'send_message'):
             # Send to all peers (target_peer=None means broadcast)
-            print(f"[DEBUG] About to broadcast ready state message: {ready_data}")
             self.network_manager.send_message("lobby_ready_state", ready_data, target_peer=None)
             print(f"Broadcasted ready state: {self.player_name} is {'ready' if self.is_ready else 'not ready'}")
         else:
@@ -3687,14 +3705,29 @@ class ModernMultiplayerLobby:
                     # Don't duplicate ourselves
                     is_self = (peer_info.peer_id == getattr(self.network_manager, 'local_peer_id', None))
                     if not is_self:
+                        ready_state = getattr(peer_info, 'ready', False)
+                        is_host_peer = getattr(peer_info, 'is_host', False)
+                        
+                        # Debug logging for host ready state specifically
+                        if is_host_peer:
+                            print(f"[CLIENT_UI] Adding host to display: {peer_info.display_name} ready={ready_state}")
+                        
                         peer_player = {
                             'display_name': peer_info.display_name,
                             'character': getattr(peer_info, 'character', 'Not selected'),
-                            'is_host': getattr(peer_info, 'is_host', False),
-                            'ready': getattr(peer_info, 'ready', False),
+                            'is_host': is_host_peer,
+                            'ready': ready_state,
                             'peer_id': peer_info.peer_id
                         }
                         players.append(peer_player)
+        
+        # Debug: Log final player list for clients to see what they're displaying
+        if not self.is_host:
+            print(f"[CLIENT_UI] Final player list for display:")
+            for i, player in enumerate(players):
+                role = "HOST" if player.get('is_host') else "CLIENT"
+                ready_status = "READY" if player.get('ready') else "NOT_READY"
+                print(f"[CLIENT_UI]   {i+1}. {player.get('display_name')} ({role}) - {ready_status}")
         
         # TEMPORARY: Add mock peer to test UI (remove once networking is fixed)
         if self.is_host and len(players) == 1:
@@ -4065,8 +4098,6 @@ class ModernMultiplayerLobby:
     
     def update(self, dt: float):
         """Update method for main game compatibility."""
-        print(f"[DEBUG] ModernMultiplayerLobby.update() (line 4067) called - connection_status: '{self.connection_status}', network_manager: {self.network_manager is not None}")
-        
         # Update status message timer
         if self.status_timer > 0:
             self.status_timer -= dt
@@ -4075,15 +4106,9 @@ class ModernMultiplayerLobby:
         
         # Process network messages for lobby synchronization 
         if self.network_manager and hasattr(self.network_manager, '_receive_direct_message'):
-            print(f"[DEBUG] Processing network messages in main update method")
             try:
                 message = self.network_manager._receive_direct_message(timeout=0.1)
                 if message:
-                    print(f"[DEBUG] Main update method received message: {message}")
                     self._handle_network_message(message)
-                else:
-                    print(f"[DEBUG] No message received in main update")
             except Exception as e:
                 print(f"[ERROR] Error processing network message in main update: {e}")
-        else:
-            print(f"[DEBUG] No network manager or _receive_direct_message method available")

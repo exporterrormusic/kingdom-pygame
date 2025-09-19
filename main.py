@@ -1770,24 +1770,20 @@ class Game:
         # Update multiplayer lobby if active
         current_state = self.state_manager.get_state()
         if current_state == GameState.MULTIPLAYER_LOBBY:
-            print(f"[DEBUG] Main loop: In MULTIPLAYER_LOBBY state, calling lobby.update()")
             self.multiplayer_lobby.update(self.dt)
             # Check for game start even when no input events occur
             game_start_result = self.multiplayer_lobby.check_game_start_status()
             if game_start_result:
-                print(f"[DEBUG] Main loop detected game start result: {game_start_result}")
                 if game_start_result == "start_game":
-                    print("[DEBUG] Main loop calling _start_multiplayer_game()")
+                    print("[DEBUG] Starting multiplayer game...")
                     self._start_multiplayer_game()
         else:
-            # Add debug to see what state we're actually in
+            # Only print state changes to avoid spam
             if hasattr(current_state, 'name'):
                 state_name = current_state.name
             else:
                 state_name = str(current_state)
-            # Only print state changes to avoid spam
             if not hasattr(self, '_last_debug_state') or self._last_debug_state != state_name:
-                print(f"[DEBUG] Main loop: Current state is {state_name} (not MULTIPLAYER_LOBBY)")
                 self._last_debug_state = state_name
         
         # Update multiplayer synchronization during gameplay
