@@ -1,5 +1,5 @@
 {
-  "player_rapture_cores": 410,
+  "player_rapture_cores": 479,
   "character_leaderboards": {
     "cecil": [
       {
@@ -192,6 +192,14 @@
       }
     ],
     "snow-white": [
+      {
+        "score": 660,
+        "waves_survived": 1,
+        "enemies_killed": 66,
+        "survival_time_seconds": 136,
+        "date": "2025-09-19 23:25:49",
+        "character_name": "snow-white"
+      },
       {
         "score": 450,
         "waves_survived": 1,
@@ -648,5 +656,5 @@
       }
     ]
   },
-  "last_saved": "2025-09-19 21:44:54"
+  "last_saved": "2025-09-19 23:25:49"
 }

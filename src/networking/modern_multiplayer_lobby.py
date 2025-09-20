@@ -650,14 +650,13 @@ class ModernMultiplayerLobby:
             DropdownOption("8", "8 Players")
         ]
         
-        # Discord friends list (simulated for demo)
+        # Discord friends list - Only use real Discord friends when available
+        # Remove hardcoded demo friends to avoid confusion
         if not hasattr(self, 'discord_friends'):
-            self.discord_friends = [
-                {"name": "PlayerOne", "status": "In Lobby", "game": "Kingdom Cleanup", "lobby_code": "FIRE-WOLF-2024"},
-                {"name": "GameMaster", "status": "Playing", "game": "Kingdom Cleanup", "lobby_code": "STAR-MOON-5678"},
-                {"name": "ProGamer", "status": "In Menu", "game": "Kingdom Cleanup", "lobby_code": None},
-                {"name": "CasualPlayer", "status": "Online", "game": "Other Game", "lobby_code": None},
-            ]
+            self.discord_friends = []  # Start with empty list - will be populated from Discord API if available
+            
+        # Attempt to load real Discord friends if integration is available
+        self._refresh_discord_friends()
     
     def start_lobby_music(self):
         """Start character select music for the lobby."""
@@ -998,6 +997,19 @@ class ModernMultiplayerLobby:
             )
         except Exception as e:
             print(f"Failed to update Discord game presence: {e}")
+    
+    def _refresh_discord_friends(self):
+        """Refresh the Discord friends list."""
+        if not self.discord_integration or not self.discord_connected:
+            self.discord_friends = []
+            return
+            
+        try:
+            # Attempt to get real Discord friends (currently returns empty list)
+            self.discord_friends = self.discord_integration.get_friends_playing("Kingdom Cleanup")
+        except Exception as e:
+            print(f"Failed to refresh Discord friends: {e}")
+            self.discord_friends = []
     
     def _handle_mouse_click(self, pos) -> Optional[str]:
         """Handle mouse clicks across all tabs."""
@@ -1635,7 +1647,7 @@ class ModernMultiplayerLobby:
             self.preferred_character = self.available_characters[new_index]
             self.character_selection = new_index
             return None
-        
+
         if hasattr(self, 'join_character_right_rect') and self.join_character_right_rect.collidepoint(pos):
             # Right arrow clicked - next character
             current_index = self.available_characters.index(self.preferred_character)
@@ -1644,7 +1656,10 @@ class ModernMultiplayerLobby:
             self.character_selection = new_index
             return None
         
-        # Input field click detection (centered in right panel)
+        # Character selection box clicked - open full character selection
+        if hasattr(self, 'join_character_rect') and self.join_character_rect.collidepoint(pos):
+            # Signal to open character selection menu
+            return "open_character_selection"        # Input field click detection (centered in right panel)
         input_width = 400
         input_height = 50
         code_rect = pg.Rect(join_x + (join_width - input_width) // 2, input_y, input_width, input_height)
@@ -2928,10 +2943,10 @@ class ModernMultiplayerLobby:
         friends_list_y = connection_y + 50
         if self.discord_connected and hasattr(self, 'discord_friends'):
             # Filter friends playing the same game
-            kingdom_friends = [f for f in self.discord_friends if f['game'] == 'Kingdom Cleanup']
+            kingdom_friends = [f for f in self.discord_friends if f.get('game') == 'Kingdom Cleanup']
             
             if kingdom_friends:
-                list_title = self.small_font.render("Playing Kingdom Cleanup:", True, self.text_color)
+                list_title = self.small_font.render("Friends Playing Kingdom Cleanup:", True, self.text_color)
                 screen.blit(list_title, (friends_x + 10, friends_list_y))
                 
                 friend_item_y = friends_list_y + 30

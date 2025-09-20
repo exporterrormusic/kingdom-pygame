@@ -86,6 +86,9 @@ class Game:
         self.character_selection = CharacterSelectionMenu(self.screen_width, self.screen_height)
         self.selected_character = None
         
+        # Navigation tracking for character selection
+        self.from_join_character_select = False
+        
         # Initialize world manager for infinite world (needed before enemy manager)
         self.world_manager = WorldManager()
         
@@ -663,6 +666,11 @@ class Game:
                             # Update character selection index to match
                             if self.selected_character in self.multiplayer_lobby.available_characters:
                                 self.multiplayer_lobby.character_selection = self.multiplayer_lobby.available_characters.index(self.selected_character)
+                            
+                            # Reset the JOIN character selection flag
+                            if hasattr(self, 'from_join_character_select') and self.from_join_character_select:
+                                self.from_join_character_select = False
+                                
                             # Return to multiplayer lobby
                             self.state_manager.change_state(GameState.MULTIPLAYER_LOBBY)
                         else:
@@ -675,6 +683,9 @@ class Game:
                     elif result == "back":
                         # Go back to previous screen
                         if self.state_manager.previous_state == GameState.MULTIPLAYER_LOBBY:
+                            # Reset the JOIN character selection flag when backing out
+                            if hasattr(self, 'from_join_character_select') and self.from_join_character_select:
+                                self.from_join_character_select = False
                             self.state_manager.change_state(GameState.MULTIPLAYER_LOBBY)
                         else:
                             # Go back to play mode selection
@@ -743,6 +754,11 @@ class Game:
                                 # Update character selection index to match
                                 if self.selected_character in self.multiplayer_lobby.available_characters:
                                     self.multiplayer_lobby.character_selection = self.multiplayer_lobby.available_characters.index(self.selected_character)
+                                
+                                # Reset the JOIN character selection flag
+                                if hasattr(self, 'from_join_character_select') and self.from_join_character_select:
+                                    self.from_join_character_select = False
+                                    
                                 # Return to multiplayer lobby
                                 self.state_manager.change_state(GameState.MULTIPLAYER_LOBBY)
                             else:
@@ -761,6 +777,10 @@ class Game:
                     elif self.state_manager.is_multiplayer_lobby():
                         result = self.multiplayer_lobby.handle_mouse_click(mouse_pos)
                         if result == "character_select":
+                            self.state_manager.change_state(GameState.CHARACTER_SELECT)
+                        elif result == "open_character_selection":
+                            # Store that we came from JOIN tab for return navigation
+                            self.from_join_character_select = True
                             self.state_manager.change_state(GameState.CHARACTER_SELECT)
                     # Handle quit confirmation mouse clicks
                     elif self.state_manager.is_quit_confirmation():

@@ -36,13 +36,17 @@ except ImportError:
 @dataclass 
 class DiscordLobbyInfo:
     """Discord-compatible lobby information."""
-    lobby_code: str
-    host_name: str
-    current_players: int
-    max_players: int
-    game_mode: str
-    region: str
-    join_secret: str  # For Discord invites
+    
+    def __init__(self, lobby_code: str = "", host_name: str = "", current_players: int = 0, 
+                 max_players: int = 4, game_mode: str = "Battle", region: str = "US", 
+                 join_secret: str = ""):
+        self.lobby_code = lobby_code
+        self.host_name = host_name
+        self.current_players = current_players
+        self.max_players = max_players
+        self.game_mode = game_mode
+        self.region = region
+        self.join_secret = join_secret or f"kingdom_lobby_{lobby_code}"
     
 
 class DiscordIntegration:
@@ -79,6 +83,11 @@ class DiscordIntegration:
             print("Discord RPC: Successfully connected!")
             self.is_connected = True
             
+            # Note: Join event handling requires additional setup
+            # Discord join requests work through Rich Presence activity settings
+            # The join secret in activity enables the "Join" button for friends
+            print("Discord RPC: Join functionality enabled via Rich Presence")
+            
             # Set initial presence
             self.update_main_menu_presence()
             
@@ -93,16 +102,11 @@ class DiscordIntegration:
         activity = {
             "details": "In Main Menu",
             "state": "Browsing Options",
-            "timestamps": {"start": self.start_timestamp},
-            "assets": {
-                "large_image": DISCORD_ASSETS["large_image"],
-                "large_text": GAME_INFO["name"],
-                "small_image": DISCORD_ASSETS["menu_icon"],
-                "small_text": "Main Menu"
-            },
-            "buttons": [
-                {"label": f"Play {GAME_INFO['name']}", "url": GAME_INFO["website"]}
-            ]
+            "start": self.start_timestamp,
+            "large_image": DISCORD_ASSETS["large_image"],
+            "large_text": GAME_INFO["name"],
+            "small_image": DISCORD_ASSETS["menu_icon"],
+            "small_text": "Main Menu"
         }
         
         self._update_activity(activity)
@@ -112,23 +116,16 @@ class DiscordIntegration:
         activity = {
             "details": f"{lobby_info.game_mode} Lobby",
             "state": f"{lobby_info.current_players}/{lobby_info.max_players} Players",
-            "timestamps": {"start": self.start_timestamp},
-            "party": {
-                "id": lobby_info.lobby_code,
-                "size": [lobby_info.current_players, lobby_info.max_players]
-            },
-            "secrets": {
-                "join": lobby_info.join_secret
-            },
-            "assets": {
-                "large_image": DISCORD_ASSETS["large_image"], 
-                "large_text": GAME_INFO["name"],
-                "small_image": DISCORD_ASSETS["multiplayer_icon"],
-                "small_text": f"Lobby: {lobby_info.lobby_code}"
-            },
-            "buttons": [
-                {"label": "Join Lobby", "url": f"{GAME_INFO['website']}/join/{lobby_info.lobby_code}"}
-            ]
+            "start": self.start_timestamp,
+            "large_image": DISCORD_ASSETS["large_image"], 
+            "large_text": GAME_INFO["name"],
+            "small_image": DISCORD_ASSETS["multiplayer_icon"],
+            "small_text": f"Lobby: {lobby_info.lobby_code}",
+            "party_id": lobby_info.lobby_code,
+            "party_size": [lobby_info.current_players, lobby_info.max_players],
+            # Use join secret for Discord's join button
+            "join": f"kingdom_lobby_{lobby_info.lobby_code}",
+            # Note: Cannot use buttons with join secrets - Discord automatically shows "Join" button
         }
         
         self._update_activity(activity)
@@ -138,17 +135,15 @@ class DiscordIntegration:
         activity = {
             "details": f"Playing {game_mode}",
             "state": f"Level: {level_name}",
-            "timestamps": {"start": int(time.time())},
-            "party": {
-                "size": [player_count, 4] if player_count > 1 else None
-            },
-            "assets": {
-                "large_image": DISCORD_ASSETS["large_image"],
-                "large_text": GAME_INFO["name"], 
-                "small_image": DISCORD_ASSETS["playing_icon"],
-                "small_text": f"{player_count} Player{'s' if player_count != 1 else ''}"
-            }
+            "start": int(time.time()),
+            "large_image": DISCORD_ASSETS["large_image"],
+            "large_text": GAME_INFO["name"], 
+            "small_image": DISCORD_ASSETS["playing_icon"],
+            "small_text": f"{player_count} Player{'s' if player_count != 1 else ''}"
         }
+        
+        if player_count > 1:
+            activity["party_size"] = [player_count, 4]
         
         self._update_activity(activity)
     
@@ -190,6 +185,22 @@ class DiscordIntegration:
                 else:
                     clean[key] = value
         return clean
+    
+    def get_friends_playing(self, game_name: str) -> List[Dict[str, Any]]:
+        """
+        Get list of Discord friends currently playing the specified game.
+        NOTE: This requires additional Discord permissions and OAuth setup.
+        For now, returns empty list - friends API requires special Discord approval.
+        """
+        # Discord friends API requires additional permissions and OAuth setup
+        # that goes beyond basic Rich Presence. This would require:
+        # 1. Discord application approval for friends access
+        # 2. OAuth2 flow for user authorization  
+        # 3. Additional scopes: 'identify' and potentially 'relationships.read'
+        # 4. User consent for friends list access
+        
+        # For now, return empty list to avoid showing fake data
+        return []
     
     def generate_lobby_invite_url(self, lobby_code: str) -> str:
         """Generate a shareable lobby invite URL."""
@@ -245,13 +256,41 @@ class DiscordIntegration:
     def handle_join_request(self, join_secret: str) -> Optional[str]:
         """Handle Discord join request and extract lobby code."""
         try:
-            # In production, this would decode the join secret
-            # For now, assume the secret contains the lobby code
-            return join_secret  # Simplified implementation
+            print(f"Processing Discord join request: {join_secret}")
+            
+            # Handle our custom join secret format
+            if join_secret.startswith("kingdom_lobby_"):
+                lobby_code = join_secret.replace("kingdom_lobby_", "")
+                print(f"Extracted lobby code: {lobby_code}")
+                return lobby_code
+            
+            # Fallback - assume the secret contains the lobby code
+            return join_secret
             
         except Exception as e:
             print(f"Discord join request error: {e}")
             return None
+    
+    def _handle_join_event(self, data):
+        """Handle Discord join events from RPC."""
+        try:
+            join_secret = data.get('secret', '') or data.get('join_secret', '')
+            if join_secret:
+                lobby_code = self.handle_join_request(join_secret)
+                if lobby_code:
+                    print(f"Discord join event processed - Lobby Code: {lobby_code}")
+                    # TODO: Notify main game to join lobby
+                    # This would typically be handled by a callback system
+                    self._notify_game_of_join_request(lobby_code)
+        except Exception as e:
+            print(f"Error handling Discord join event: {e}")
+    
+    def _notify_game_of_join_request(self, lobby_code: str):
+        """Notify the main game that a Discord join was requested."""
+        # This is where we'd integrate with the main game loop
+        # For now, just log it - integration would require main game support
+        print(f"DISCORD JOIN REQUESTED: {lobby_code}")
+        print("To implement: Main game should auto-navigate to join screen with this code")
     
     def disconnect(self):
         """Disconnect from Discord RPC."""

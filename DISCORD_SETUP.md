@@ -30,6 +30,18 @@ DISCORD_CLIENT_ID = "1234567890123456789"  # Replace with your actual ID
    - **playing_icon**: Icon for active gameplay (256x256)
 3. Use the exact names above as the **Asset Name** when uploading
 
+## Step 4: Enable Join Button (Optional but Recommended)
+
+1. Still in Discord Developer Portal, go to **OAuth2** tab
+2. Under **Scopes**, check:
+   - `rpc`
+   - `rpc.activities.write`
+3. Go back to **Rich Presence** tab
+4. **Enable "Rich Presence Join Requests"**
+5. Save changes
+
+This enables friends to click "Join Game" on your Discord status!
+
 ## Step 4: Test the Integration
 
 1. Make sure Discord is running on your computer
@@ -44,7 +56,8 @@ DISCORD_CLIENT_ID = "1234567890123456789"  # Replace with your actual ID
 1. Create a lobby in the game
 2. Your Discord status should update to show the lobby
 3. Try the "Share to Discord" feature (copies lobby code to clipboard)
-4. Other Discord users can paste and use the lobby code to join
+4. **Friends should see a "Join Game" button** on your Discord status
+5. Other Discord users can paste and use the lobby code to join
 
 ## Troubleshooting
 
