@@ -269,10 +269,10 @@ class ModernMultiplayerLobby:
         self.text_secondary = (180, 190, 220)    # Muted blue-white
         self.inactive_color = (100, 110, 140)    # Inactive elements
         
-        # Tab system
-        self.current_tab = LobbyTab.CREATE
-        self.tab_selection = 0
+        # Tab system - ensure JOIN is the default
         self.tabs = [LobbyTab.CREATE, LobbyTab.JOIN, LobbyTab.SETTINGS]
+        self.current_tab = LobbyTab.JOIN
+        self.tab_selection = 1  # Index of JOIN in tabs array
         self.tab_names = {
             LobbyTab.CREATE: "CREATE LOBBY",
             LobbyTab.JOIN: "JOIN LOBBY", 
@@ -1920,6 +1920,16 @@ class ModernMultiplayerLobby:
     
     def render(self, screen: pg.Surface):
         """Render the modern multiplayer lobby."""
+        # Safeguard: ensure current_tab matches intended default if this is the first render
+        if not hasattr(self, '_render_count'):
+            self._render_count = 0
+        
+        self._render_count += 1
+        if self._render_count == 1:  # First render - ensure JOIN is selected
+            if self.current_tab != LobbyTab.JOIN:
+                self.current_tab = LobbyTab.JOIN
+                self.tab_selection = 1
+        
         # Use enhanced menu's background rendering for consistency
         if self.enhanced_menu:
             self.enhanced_menu._draw_clean_background(screen)
