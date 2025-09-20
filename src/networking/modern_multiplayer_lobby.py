@@ -14,6 +14,20 @@ import os
 from typing import Dict, List, Optional, Tuple, Callable, Any
 from enum import Enum
 from dataclasses import dataclass
+
+try:
+    import pyperclip
+    CLIPBOARD_AVAILABLE = True
+except ImportError:
+    CLIPBOARD_AVAILABLE = False
+
+# Import Discord integration
+try:
+    from .discord_integration import get_discord_integration, create_lobby_info
+    DISCORD_INTEGRATION_AVAILABLE = True
+except ImportError:
+    DISCORD_INTEGRATION_AVAILABLE = False
+    print("Discord integration not available")
 from .secure_network_manager import SecureNetworkManager, NetworkMode, ConnectionSecurity, PeerInfo, RelayServerInfo
 
 
@@ -308,6 +322,18 @@ class ModernMultiplayerLobby:
         self.discord_connected = False
         self.discord_username = ""
         self.discord_status = "Connect Discord for easy lobby sharing"
+        
+        # Initialize Discord integration if available
+        self.discord_integration = None
+        if DISCORD_INTEGRATION_AVAILABLE:
+            try:
+                self.discord_integration = get_discord_integration()
+                self.discord_connected = self.discord_integration.is_connected
+                if self.discord_connected:
+                    self.discord_status = "Connected to Discord"
+            except Exception as e:
+                print(f"Failed to initialize Discord integration: {e}")
+                self.discord_integration = None
         self.friends_list = []
         
         # Settings
@@ -874,36 +900,104 @@ class ModernMultiplayerLobby:
     
     def _attempt_discord_connection(self):
         """Attempt to connect to Discord."""
+        if not DISCORD_INTEGRATION_AVAILABLE:
+            self._set_status("Discord integration not available", (255, 100, 100))
+            return
+            
         try:
-            # For now, simulate Discord connection
-            # In a real implementation, this would use Discord's API
-            self.discord_connected = True
-            self._set_status("Connected to Discord successfully!", (0, 255, 0))
+            if self.discord_integration is None:
+                self.discord_integration = get_discord_integration()
+            
+            # Re-initialize if not connected
+            if not self.discord_integration.is_connected:
+                self.discord_integration._initialize_discord()
+            
+            if self.discord_integration.is_connected:
+                self.discord_connected = True
+                self.discord_status = "Connected to Discord"
+                self._set_status("Connected to Discord successfully!", (0, 255, 0))
+                
+                # Update Discord presence to show we're in the lobby
+                if hasattr(self, 'current_lobby_code') and self.current_lobby_code:
+                    self._update_discord_lobby_presence()
+            else:
+                self.discord_connected = False
+                self._set_status("Failed to connect to Discord - Check console for details", (255, 100, 100))
+                
         except Exception as e:
-            self._set_status(f"Failed to connect to Discord: {str(e)}", (255, 0, 0))
+            self.discord_connected = False
+            self._set_status(f"Discord connection error: {str(e)}", (255, 0, 0))
     
     def _disconnect_discord(self):
         """Disconnect from Discord."""
+        if self.discord_integration and self.discord_connected:
+            try:
+                self.discord_integration.clear_presence()
+            except:
+                pass
+        
         self.discord_connected = False
+        self.discord_status = "Connect Discord for easy lobby sharing"
         self._set_status("Disconnected from Discord", (255, 255, 0))
     
     def _share_to_discord(self):
         """Share the current lobby code to Discord."""
-        if self.discord_connected and self.current_lobby_code:
-            # In a real implementation, this would use Discord's API to share the message
-            # For now, simulate sharing by copying to clipboard or showing a message
-            share_message = f"Join my Kingdom lobby! Code: {self.current_lobby_code.format_for_display()}"
+        if not CLIPBOARD_AVAILABLE:
+            self._set_status("Clipboard not available for sharing", (255, 100, 100))
+            return
+            
+        if self.discord_connected and hasattr(self, 'current_lobby_code') and self.current_lobby_code:
+            # Create shareable message
+            share_message = f"Join my Kingdom Cleanup lobby! Code: {self.current_lobby_code.format_for_display()}"
             
             try:
-                # Try to copy to clipboard (this would work in a real implementation)
-                import pyperclip
                 pyperclip.copy(share_message)
                 self._set_status("Lobby code copied to clipboard for Discord!", (0, 255, 0))
-            except ImportError:
-                # Fallback if pyperclip not available
-                self._set_status(f"Share this: {share_message}", (0, 255, 0))
+            except Exception as e:
+                self._set_status(f"Failed to copy to clipboard: {str(e)}", (255, 100, 100))
         else:
             self._set_status("No lobby to share or Discord not connected", (255, 0, 0))
+    
+    def _update_discord_lobby_presence(self):
+        """Update Discord Rich Presence with current lobby information."""
+        if not self.discord_integration or not self.discord_connected:
+            return
+            
+        if not hasattr(self, 'current_lobby_code') or not self.current_lobby_code:
+            # Update to main menu presence
+            self.discord_integration.update_main_menu_presence()
+            return
+            
+        try:
+            # Create lobby info for Discord
+            lobby_info = create_lobby_info(
+                lobby_code=self.current_lobby_code.format_for_display(),
+                host_name=getattr(self, 'player_name', 'Player'),
+                current_players=len(self.players),
+                max_players=self.max_players,
+                game_mode=self.game_mode,
+                region=getattr(self, 'region', 'Local')
+            )
+            
+            self.discord_integration.update_lobby_presence(lobby_info)
+            
+        except Exception as e:
+            print(f"Failed to update Discord lobby presence: {e}")
+    
+    def _update_discord_game_presence(self, level_name: str):
+        """Update Discord Rich Presence for active gameplay."""
+        if not self.discord_integration or not self.discord_connected:
+            return
+            
+        try:
+            player_count = len(self.players) if hasattr(self, 'players') else 1
+            self.discord_integration.update_game_presence(
+                game_mode=self.game_mode,
+                level_name=level_name,
+                player_count=player_count
+            )
+        except Exception as e:
+            print(f"Failed to update Discord game presence: {e}")
     
     def _handle_mouse_click(self, pos) -> Optional[str]:
         """Handle mouse clicks across all tabs."""
@@ -1816,6 +1910,10 @@ class ModernMultiplayerLobby:
                 
                 self._set_status(f"Lobby created! Code: {self.current_lobby_code.format_for_display()}", 
                                self.success_color)
+                
+                # Update Discord presence
+                self._update_discord_lobby_presence()
+                
                 return "lobby_created"
             else:
                 self._set_status("Failed to create lobby", self.error_color)

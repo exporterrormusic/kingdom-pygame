@@ -8,6 +8,30 @@ import json
 from typing import Dict, Optional, List, Any
 from dataclasses import dataclass
 
+try:
+    import pypresence
+    PYPRESENCE_AVAILABLE = True
+except ImportError:
+    PYPRESENCE_AVAILABLE = False
+    print("pypresence not available - Discord integration will be simulated")
+
+try:
+    from discord_config import DISCORD_CLIENT_ID, DISCORD_ASSETS, GAME_INFO
+except ImportError:
+    # Fallback configuration
+    DISCORD_CLIENT_ID = "YOUR_DISCORD_CLIENT_ID_HERE"
+    DISCORD_ASSETS = {
+        "large_image": "kingdom_logo",
+        "menu_icon": "menu_icon", 
+        "multiplayer_icon": "multiplayer_icon",
+        "playing_icon": "playing_icon",
+    }
+    GAME_INFO = {
+        "name": "Kingdom Cleanup",
+        "description": "A twin-stick shooter with multiplayer",
+        "website": "https://github.com/exporterrormusic/kingdom-pygame",
+    }
+
 
 @dataclass 
 class DiscordLobbyInfo:
@@ -26,27 +50,43 @@ class DiscordIntegration:
     
     def __init__(self):
         self.is_connected = False
-        self.client_id = "1234567890123456789"  # Would be actual Discord app ID
+        self.client_id = DISCORD_CLIENT_ID
         self.current_activity = None
         self.start_timestamp = int(time.time())
+        self.rpc = None
         
         # Try to initialize Discord RPC
         self._initialize_discord()
         
     def _initialize_discord(self):
         """Initialize Discord Rich Presence."""
-        try:
-            # In production, this would use pypresence or similar Discord RPC library
-            # import pypresence
-            # self.rpc = pypresence.Presence(self.client_id)
-            # self.rpc.connect()
+        if not PYPRESENCE_AVAILABLE:
+            print("Discord RPC: pypresence not available - using simulation mode")
+            self.is_connected = False
+            return
             
-            print("Discord RPC: Simulated connection established")
+        if self.client_id == "YOUR_DISCORD_CLIENT_ID_HERE":
+            print("Discord RPC: Please set your Discord Client ID in discord_config.py")
+            print("Get it from: https://discord.com/developers/applications")
+            self.is_connected = False
+            return
+            
+        try:
+            print(f"Discord RPC: Attempting to connect with Client ID: {self.client_id}")
+            self.rpc = pypresence.Presence(self.client_id)
+            self.rpc.connect()
+            
+            print("Discord RPC: Successfully connected!")
             self.is_connected = True
+            
+            # Set initial presence
+            self.update_main_menu_presence()
             
         except Exception as e:
             print(f"Discord RPC: Connection failed - {e}")
+            print("Make sure Discord is running and your Client ID is correct")
             self.is_connected = False
+            self.rpc = None
     
     def update_main_menu_presence(self):
         """Update presence for main menu state."""
@@ -55,13 +95,13 @@ class DiscordIntegration:
             "state": "Browsing Options",
             "timestamps": {"start": self.start_timestamp},
             "assets": {
-                "large_image": "kingdom_logo",
-                "large_text": "Kingdom Cleanup",
-                "small_image": "menu_icon",
+                "large_image": DISCORD_ASSETS["large_image"],
+                "large_text": GAME_INFO["name"],
+                "small_image": DISCORD_ASSETS["menu_icon"],
                 "small_text": "Main Menu"
             },
             "buttons": [
-                {"label": "Play Kingdom Cleanup", "url": "https://kingdom-game.com"}
+                {"label": f"Play {GAME_INFO['name']}", "url": GAME_INFO["website"]}
             ]
         }
         
@@ -81,13 +121,13 @@ class DiscordIntegration:
                 "join": lobby_info.join_secret
             },
             "assets": {
-                "large_image": "kingdom_logo", 
-                "large_text": "Kingdom Cleanup",
-                "small_image": "multiplayer_icon",
+                "large_image": DISCORD_ASSETS["large_image"], 
+                "large_text": GAME_INFO["name"],
+                "small_image": DISCORD_ASSETS["multiplayer_icon"],
                 "small_text": f"Lobby: {lobby_info.lobby_code}"
             },
             "buttons": [
-                {"label": "Join Lobby", "url": f"https://kingdom-game.com/join/{lobby_info.lobby_code}"}
+                {"label": "Join Lobby", "url": f"{GAME_INFO['website']}/join/{lobby_info.lobby_code}"}
             ]
         }
         
@@ -103,9 +143,9 @@ class DiscordIntegration:
                 "size": [player_count, 4] if player_count > 1 else None
             },
             "assets": {
-                "large_image": "kingdom_logo",
-                "large_text": "Kingdom Cleanup", 
-                "small_image": "playing_icon",
+                "large_image": DISCORD_ASSETS["large_image"],
+                "large_text": GAME_INFO["name"], 
+                "small_image": DISCORD_ASSETS["playing_icon"],
                 "small_text": f"{player_count} Player{'s' if player_count != 1 else ''}"
             }
         }
@@ -114,25 +154,42 @@ class DiscordIntegration:
     
     def clear_presence(self):
         """Clear Discord presence."""
-        if self.is_connected:
+        if self.is_connected and self.rpc:
             try:
-                # self.rpc.clear()
+                self.rpc.clear()
                 print("Discord RPC: Presence cleared")
             except Exception as e:
                 print(f"Discord RPC: Clear failed - {e}")
     
     def _update_activity(self, activity: Dict[str, Any]):
         """Internal method to update Discord activity."""
-        if not self.is_connected:
+        if not self.is_connected or not self.rpc:
+            print(f"Discord RPC: Simulated update - {activity['details']}: {activity['state']}")
+            self.current_activity = activity
             return
             
         try:
-            # In production: self.rpc.update(**activity)
+            # Filter out None values and clean up activity
+            clean_activity = self._clean_activity(activity)
+            self.rpc.update(**clean_activity)
             print(f"Discord RPC: Updated activity - {activity['details']}: {activity['state']}")
             self.current_activity = activity
             
         except Exception as e:
             print(f"Discord RPC: Update failed - {e}")
+            
+    def _clean_activity(self, activity: Dict[str, Any]) -> Dict[str, Any]:
+        """Clean activity dict by removing None values and invalid fields."""
+        clean = {}
+        for key, value in activity.items():
+            if value is not None:
+                if isinstance(value, dict):
+                    clean_nested = {k: v for k, v in value.items() if v is not None}
+                    if clean_nested:  # Only add if not empty
+                        clean[key] = clean_nested
+                else:
+                    clean[key] = value
+        return clean
     
     def generate_lobby_invite_url(self, lobby_code: str) -> str:
         """Generate a shareable lobby invite URL."""
@@ -198,13 +255,16 @@ class DiscordIntegration:
     
     def disconnect(self):
         """Disconnect from Discord RPC."""
-        if self.is_connected:
+        if self.is_connected and self.rpc:
             try:
-                # self.rpc.close()
+                self.rpc.close()
                 print("Discord RPC: Disconnected")
                 self.is_connected = False
+                self.rpc = None
             except Exception as e:
                 print(f"Discord disconnect error: {e}")
+        else:
+            print("Discord RPC: Already disconnected")
 
 
 # Global Discord integration instance
