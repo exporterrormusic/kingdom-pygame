@@ -18,7 +18,7 @@ class CollisionManager:
         pass
     
     def check_bullet_enemy_collisions(self, bullet_manager: BulletManager, 
-                                    enemy_manager: EnemyManager, player=None, effects_manager=None, world_manager=None) -> int:
+                                    enemy_manager: EnemyManager, player=None, effects_manager=None, world_manager=None, bullet_hit_callback=None) -> int:
         """
         Check collisions between bullets and enemies.
         Returns the number of enemies killed this frame.
@@ -33,6 +33,10 @@ class CollisionManager:
             from src.entities.bullet import BulletType
             if bullet.type == BulletType.ENEMY_LASER:
                 continue  # Enemy bullets don't hurt enemies
+                
+            # Skip network bullets - they are visual only for local player
+            if hasattr(bullet, 'is_network_bullet') and bullet.is_network_bullet:
+                continue  # Network bullets don't collide with local enemies
                 
             bullet_rect = bullet.get_rect()
             
@@ -98,6 +102,10 @@ class CollisionManager:
                                 # Add sword impact effect for magical blade slashes
                                 elif effects_manager and hasattr(bullet, 'shape') and bullet.shape == "slash":
                                     effects_manager.add_sword_impact_effect(bullet.pos.x, bullet.pos.y)
+                                
+                                # Send bullet hit event for network synchronization
+                                if bullet_hit_callback:
+                                    bullet_hit_callback(bullet.pos.x, bullet.pos.y)
                         else:
                             # Default behavior for bullets without penetration system
                             if should_remove_bullet and bullet not in bullets_to_remove:
@@ -120,6 +128,10 @@ class CollisionManager:
                                 # Add sword impact effect for magical blade slashes
                                 elif effects_manager and hasattr(bullet, 'shape') and bullet.shape == "slash":
                                     effects_manager.add_sword_impact_effect(bullet.pos.x, bullet.pos.y)
+                                
+                                # Send bullet hit event for network synchronization
+                                if bullet_hit_callback:
+                                    bullet_hit_callback(bullet.pos.x, bullet.pos.y)
                         
                         if not enemy.is_alive() and enemy not in enemies_to_remove:
                             enemies_to_remove.append(enemy)
@@ -390,3 +402,106 @@ class CollisionManager:
             return response1, response2
         
         return pg.Vector2(0, 0), pg.Vector2(0, 0)
+    
+    def check_bullet_enemy_collisions_network_client(self, bullet_manager, enemy_manager, player=None, 
+                                                    effects_manager=None, world_manager=None, game_synchronizer=None, bullet_hit_callback=None):
+        """
+        Network client collision detection - detects hits and sends damage to host instead of applying locally.
+        Returns 0 kills (since host handles the actual enemy deaths).
+        """
+        from src.networking.network_manager import MessageType
+        
+        bullets_to_remove = []
+        damage_messages = []
+        
+        for bullet in bullet_manager.get_bullets():
+            # Only check player bullets hitting enemies
+            if bullet.type.value != "player":
+                continue
+                
+            bullet_pos = pg.Vector2(bullet.pos)
+            
+            for enemy in enemy_manager.get_enemies():
+                if not enemy.is_alive():
+                    continue
+                    
+                enemy_pos = pg.Vector2(enemy.pos)
+                distance = bullet_pos.distance_to(enemy_pos)
+                
+                # Calculate effective bullet collision size based on shape
+                effective_bullet_size = bullet.size
+                if hasattr(bullet, 'shape') and bullet.shape == "laser":
+                    # Laser bullets (sniper) have much larger visual beam width
+                    effective_bullet_size = max(bullet.size * 4, 24) / 2  # Divide by 2 since we're using radius
+                
+                if distance <= effective_bullet_size + enemy.size:
+                    # Collision detected - send damage to host instead of applying locally
+                    # Rate-limited debug to reduce spam
+                    import time
+                    if not hasattr(self, '_collision_debug_time'):
+                        self._collision_debug_time = 0
+                    current_time = time.time()
+                    if current_time - self._collision_debug_time > 3.0:
+                        self._collision_debug_time = current_time
+                        # Reduce client collision debug spam
+                        if hasattr(self, '_client_collision_count'):
+                            self._client_collision_count += 1
+                        else:
+                            self._client_collision_count = 1
+                            
+                        # Only log every 10th collision to reduce spam
+                        if self._client_collision_count % 10 == 1:
+                            print(f"[CLIENT_COLLISION] Client hit detected, sending to host")
+                    
+                    if game_synchronizer and game_synchronizer.network_manager:
+                        # Send damage message to host
+                        damage_data = {
+                            'enemy_id': enemy.enemy_id,
+                            'damage': bullet.damage,
+                            'player_id': game_synchronizer.local_player_id,
+                            'bullet_id': getattr(bullet, 'bullet_id', 'unknown'),
+                            'position': (enemy.pos.x, enemy.pos.y)
+                        }
+                        
+                        # Only log every 10th damage message to reduce spam
+                        if self._client_collision_count % 10 == 1:
+                            print(f"[CLIENT_DAMAGE] Sending damage message: {bullet.damage} to enemy {enemy.enemy_id}")
+                        game_synchronizer.network_manager.send_message(
+                            MessageType.ENEMY_DAMAGE,
+                            damage_data
+                        )
+                        # Remove excessive success message spam
+                        pass
+                    
+                    # Add BURST points to player when hitting enemy (client can do this locally)
+                    if player and hasattr(player, 'add_burst_points'):
+                        player.add_burst_points(1)
+                    
+                    # Send bullet hit event for network synchronization
+                    if bullet_hit_callback:
+                        bullet_hit_callback(bullet.pos.x, bullet.pos.y)
+                    
+                    # Handle visual effects locally (impacts, sparks, etc.)
+                    # Note: Skip impact sparks for now to avoid method call issues
+                    # if effects_manager:
+                    #     effects_manager.add_impact_sparks(bullet.pos.x, bullet.pos.y, bullet.angle)
+                    
+                    # Check if bullet should be removed (most bullets are removed on hit)
+                    should_remove_bullet = True
+                    
+                    # Handle bullet penetration
+                    if hasattr(bullet, 'hits_remaining'):
+                        bullet.hits_remaining -= 1
+                        if bullet.hits_remaining > 0:
+                            should_remove_bullet = False
+                    
+                    if should_remove_bullet:
+                        bullets_to_remove.append(bullet)
+                    
+                    break  # Bullet can only hit one enemy per frame
+        
+        # Remove bullets that hit targets
+        for bullet in bullets_to_remove:
+            bullet_manager.remove_bullet(bullet)
+        
+        return 0  # Client doesn't kill enemies directly

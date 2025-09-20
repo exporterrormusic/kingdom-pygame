@@ -382,7 +382,7 @@ class CoreManager:
             self.chests.append(chest)
             
     def drop_core_from_enemy(self, enemy_pos: pg.Vector2, enemy_danger_level: int, 
-                           enemy_type_multiplier: float = 1.0):
+                           enemy_type_multiplier: float = 1.0, game_synchronizer=None):
         """Drop cores when an enemy is defeated."""
         # Higher drop chance based on enemy difficulty
         drop_chance = 0.4 + (enemy_danger_level * 0.15) + (enemy_type_multiplier * 0.1)  # Much higher chance
@@ -400,8 +400,21 @@ class CoreManager:
                 drop_y = enemy_pos.y + random.randint(-30, 30)
                 core = RaptureCore(drop_x, drop_y, 1)
                 self.cores.append(core)
+                
+                # Sync core drop to network (host only)
+                if game_synchronizer and hasattr(game_synchronizer, 'is_host') and game_synchronizer.is_host:
+                    game_synchronizer.on_world_event("core_drop", {
+                        "position": (drop_x, drop_y),
+                        "value": 1,
+                        "core_id": f"core_{drop_x}_{drop_y}_{core_count}"
+                    })
         else:
             print("DEBUG: No core dropped")  # Debug print
+    
+    def add_network_core(self, position: tuple, value: int):
+        """Add a core from network synchronization."""
+        core = RaptureCore(position[0], position[1], value)
+        self.cores.append(core)
                 
     def try_collect_cores(self, player_pos: pg.Vector2) -> int:
         """Try to collect cores near player position."""

@@ -10,6 +10,16 @@ import os
 from typing import List, Tuple, Optional
 from enum import Enum
 
+# Import MessageType for network communication
+try:
+    from src.networking.network_manager import MessageType
+except ImportError:
+    try:
+        from networking.network_manager import MessageType
+    except ImportError:
+        # Fallback if imports fail
+        MessageType = None
+
 # Handle imports for sprite animation
 try:
     from src.utils.sprite_animation import AnimatedSprite
@@ -40,7 +50,7 @@ class EnemyType(Enum):
 class Enemy:
     """Base enemy class."""
     
-    def __init__(self, x: float, y: float, enemy_type: EnemyType = EnemyType.BASIC, sprite_sheet_path: Optional[str] = None, wave: int = 1, wave_danger_level: int = 1, distance_from_spawn: float = 0.0):
+    def __init__(self, x: float, y: float, enemy_type: EnemyType = EnemyType.BASIC, sprite_sheet_path: Optional[str] = None, wave: int = 1, wave_danger_level: int = 1, distance_from_spawn: float = 0.0, enemy_id: str = None):
         """Initialize an enemy."""
         self.pos = pg.Vector2(x, y)
         self.velocity = pg.Vector2(0, 0)
@@ -49,6 +59,11 @@ class Enemy:
         self.wave = wave  # Store wave for scaling
         self.wave_danger_level = wave_danger_level
         self.distance_from_spawn = distance_from_spawn
+        
+        # Network synchronization
+        self.enemy_id = enemy_id or f"enemy_{random.randint(10000, 99999)}"
+        self.last_network_update = 0.0
+        self.network_update_interval = 0.1  # Update every 100ms
         
         # Initialize base stats based on type FIRST
         self._init_stats_by_type()
@@ -273,6 +288,28 @@ class Enemy:
         """Check if enemy is still alive."""
         return self.health > 0
     
+    def get_network_state(self) -> dict:
+        """Get enemy state for network synchronization."""
+        return {
+            "enemy_id": self.enemy_id,
+            "position": (self.pos.x, self.pos.y),
+            "velocity": (self.velocity.x, self.velocity.y),
+            "health": self.health,
+            "max_health": self.max_health,
+            "type": self.type.value,
+            "target_player_id": getattr(self, 'target_player_id', None),
+            "is_alive": self.is_alive(),
+            "wave": self.wave
+        }
+    
+    def apply_network_state(self, state_data: dict):
+        """Apply network state to this enemy (for clients)."""
+        self.pos = pg.Vector2(state_data["position"])
+        self.velocity = pg.Vector2(state_data["velocity"]) 
+        self.health = state_data["health"]
+        self.target_player_id = state_data.get("target_player_id")
+        # Don't update max_health, type, or wave as they shouldn't change
+    
     def _render_enemy_glow(self, screen: pg.Surface, render_x: int, render_y: int):
         """Enemy glow is now handled by the dynamic lighting system."""
         # Old gradient-based glow disabled - now using dynamic lighting system
@@ -371,11 +408,18 @@ class Enemy:
 class EnemyManager:
     """Manages all enemies in the game."""
     
-    def __init__(self, world_manager=None, spawn_point=(0, 0)):
+    def __init__(self, world_manager=None, spawn_point=(0, 0), is_host=False, game_synchronizer=None):
         """Initialize the enemy manager."""
         self.enemies: List[Enemy] = []
         self.world_manager = world_manager
         self.spawn_point = pg.Vector2(spawn_point)  # Player's starting position
+        
+        # Network multiplayer support
+        self.is_host = is_host
+        self.game_synchronizer = game_synchronizer
+        self.last_sync_time = 0.0
+        self.sync_interval = 0.5  # Sync every 500ms (reduced from 100ms to prevent flooding)
+        self.next_enemy_id = 1
         
         # Spawning mechanics
         self.spawn_timer = 0.0
@@ -494,9 +538,20 @@ class EnemyManager:
         enemy_type = random.choice(enemy_types)
         distance_from_center = math.sqrt(spawn_x**2 + spawn_y**2)
         
+        # Generate unique ID for multiplayer
+        enemy_id = self.generate_enemy_id()
+        
         enemy = Enemy(spawn_x, spawn_y, enemy_type, self.cached_sprite_path, 
-                    self.wave, wave_danger_level, distance_from_center)
+                    self.wave, wave_danger_level, distance_from_center, enemy_id=enemy_id)
         self.enemies.append(enemy)
+        
+        # Notify network if host (spawn synchronization)
+        if self.is_host and self.game_synchronizer:
+            enemy_state = enemy.get_network_state()
+            self.game_synchronizer.network_manager.send_message(
+                MessageType.ENEMY_SPAWN,
+                enemy_state
+            )
     
     def populate_enemies_on_start(self, screen_width: int = 1920, screen_height: int = 1080, 
                                 player_pos: pg.Vector2 = None, zoom_level: float = 1.0, initial_count: int = None):
@@ -586,8 +641,11 @@ class EnemyManager:
             enemy_type = random.choice(enemy_types)
             distance_from_center = math.sqrt(spawn_x**2 + spawn_y**2)
             
+            # Generate unique ID for multiplayer
+            enemy_id = self.generate_enemy_id()
+            
             enemy = Enemy(spawn_x, spawn_y, enemy_type, self.cached_sprite_path, 
-                        self.wave, wave_danger_level, distance_from_center)
+                        self.wave, wave_danger_level, distance_from_center, enemy_id=enemy_id)
             self.enemies.append(enemy)
         
         print(f"Pre-populated {len(self.enemies)} enemies at world borders")
@@ -708,12 +766,33 @@ class EnemyManager:
                 hasattr(enemy, 'should_shoot_laser') and 
                 enemy.should_shoot_laser):
                 
+                # Create the enemy bullet
                 bullet_manager.shoot_enemy_laser(
                     enemy.pos.x, 
                     enemy.pos.y, 
                     enemy.laser_angle, 
                     current_time
                 )
+                
+                # Synchronize enemy bullet to network (host only)
+                if self.is_host and self.game_synchronizer:
+                    bullet_speed = 300  # Default enemy laser speed
+                    velocity_x = math.cos(math.radians(enemy.laser_angle)) * bullet_speed
+                    velocity_y = math.sin(math.radians(enemy.laser_angle)) * bullet_speed
+                    
+                    # Send enemy bullet data to clients  
+                    from ..networking.network_manager import MessageType
+                    self.game_synchronizer.network_manager.send_message(
+                        MessageType.ENEMY_BULLET_FIRE,  # Use proper MessageType enum
+                        {
+                            "enemy_id": enemy.enemy_id,
+                            "position": (enemy.pos.x, enemy.pos.y),
+                            "angle": enemy.laser_angle,
+                            "velocity": (velocity_x, velocity_y),
+                            "damage": 10,  # Default enemy bullet damage
+                            "timestamp": current_time
+                        }
+                    )
 
             if not enemy.is_alive():
                 enemies_to_remove.append(enemy)
@@ -734,7 +813,7 @@ class EnemyManager:
                     type_multiplier = 1.5
                     
                 self.world_manager.core_manager.drop_core_from_enemy(
-                    enemy.pos, enemy.wave_danger_level, type_multiplier
+                    enemy.pos, enemy.wave_danger_level, type_multiplier, self.game_synchronizer
                 )
             
             self.enemies.remove(enemy)
@@ -797,9 +876,22 @@ class EnemyManager:
                     type_multiplier = 1.5
                     
                 self.world_manager.core_manager.drop_core_from_enemy(
-                    enemy.pos, enemy.wave_danger_level, type_multiplier
+                    enemy.pos, enemy.wave_danger_level, type_multiplier, self.game_synchronizer
                 )
             
+            # Notify network if host (death synchronization)  
+            if self.is_host and self.game_synchronizer:
+                # Log death message only occasionally 
+                print(f"[ENEMY_DEATH_HOST] Sending death message for enemy {enemy.enemy_id}")
+                self.game_synchronizer.network_manager.send_message(
+                    MessageType.ENEMY_DEATH,
+                    {"enemy_id": enemy.enemy_id}
+                )
+                # Remove death message sent confirmation spam
+            else:
+                print(f"[ENEMY_DEATH_HOST] Not sending death message - is_host={self.is_host}, has_sync={self.game_synchronizer is not None}")
+            
+            # Remove excessive death removal debug
             self.enemies.remove(enemy)
             self.enemies_killed += 1
             self.enemies_killed_this_wave += 1
@@ -855,3 +947,131 @@ class EnemyManager:
     def get_kills(self) -> int:
         """Get total enemies killed."""
         return self.enemies_killed
+    
+    def set_network_mode(self, is_host: bool, game_synchronizer=None):
+        """Set network mode and synchronizer."""
+        self.is_host = is_host
+        self.game_synchronizer = game_synchronizer
+    
+    def sync_enemies_to_network(self, current_time: float):
+        """Synchronize enemy states to network (host only)."""
+        if not self.is_host or not self.game_synchronizer:
+            return
+            
+        if current_time - self.last_sync_time < self.sync_interval:
+            return
+            
+        # Send enemy updates for all alive enemies
+        enemies_synced = 0
+        for enemy in self.enemies:
+            if enemy.is_alive():
+                enemy_state = enemy.get_network_state()
+                self.game_synchronizer.network_manager.send_message(
+                    MessageType.ENEMY_UPDATE,
+                    enemy_state
+                )
+                enemies_synced += 1
+                
+        if enemies_synced > 0:
+            # Reduce sync debug frequency
+            if hasattr(self, '_sync_count'):
+                self._sync_count += 1
+            else:
+                self._sync_count = 1
+                
+            # Only log every 20th sync operation to reduce spam
+            if self._sync_count % 20 == 1:
+                print(f"[ENEMY_SYNC] Host synced {enemies_synced} enemies to network")
+            
+        self.last_sync_time = current_time
+    
+    def spawn_network_enemy(self, enemy_data: dict):
+        """Spawn an enemy from network data (clients only)."""
+        if self.is_host:
+            return  # Host manages its own enemies
+            
+        # Log network enemy creation but less frequently
+        if hasattr(self, '_spawn_count'):
+            self._spawn_count += 1
+        else:
+            self._spawn_count = 1
+            
+        # Only log every 5th spawn to reduce spam
+        if self._spawn_count % 5 == 1:
+            print(f"[ENEMY_SYNC] Client creating network enemy {enemy_data.get('enemy_id', 'unknown')} at {enemy_data.get('position', 'unknown')}")
+        
+        # Create enemy from network data
+        enemy_type = EnemyType(enemy_data.get("type", "basic"))
+        enemy = Enemy(
+            enemy_data["position"][0], 
+            enemy_data["position"][1], 
+            enemy_type=enemy_type,
+            sprite_sheet_path=self.cached_sprite_path,
+            wave=enemy_data.get("wave", 1),
+            enemy_id=enemy_data["enemy_id"]
+        )
+        enemy.health = enemy_data["health"]
+        enemy.max_health = enemy_data["max_health"]
+        
+        self.enemies.append(enemy)
+        # Only log total enemy count occasionally
+        if self._spawn_count % 5 == 1:
+            print(f"[ENEMY_SYNC] Client now has {len(self.enemies)} total enemies")
+        
+        # Don't send network message back - this would cause infinite loop!
+    
+    def update_network_enemy(self, enemy_data: dict):
+        """Update an enemy from network data (clients only)."""
+        if self.is_host:
+            return  # Host manages its own enemies
+            
+        enemy_id = enemy_data["enemy_id"]
+        
+        # Find and update the enemy
+        for enemy in self.enemies:
+            if enemy.enemy_id == enemy_id:
+                enemy.apply_network_state(enemy_data)
+                break
+    
+    def remove_network_enemy(self, enemy_id: str):
+        """Remove an enemy based on network command (clients only)."""
+        if self.is_host:
+            print(f"[ENEMY_DEATH_CLIENT] Host shouldn't call remove_network_enemy for {enemy_id}")
+            return  # Host manages its own enemies
+            
+        print(f"[ENEMY_DEATH_CLIENT] Client searching for enemy {enemy_id} to remove")
+        print(f"[ENEMY_DEATH_CLIENT] Current enemies: {[e.enemy_id for e in self.enemies]}")
+        
+        for enemy in self.enemies[:]:  # Copy list to avoid modification during iteration
+            if enemy.enemy_id == enemy_id:
+                print(f"[ENEMY_DEATH_CLIENT] Found and removing enemy {enemy_id}")
+                self.enemies.remove(enemy)
+                print(f"[ENEMY_DEATH_CLIENT] Enemy {enemy_id} removed successfully")
+                return
+        
+        print(f"[ENEMY_DEATH_CLIENT] WARNING: Enemy {enemy_id} not found for removal")
+
+    def update_render_only(self, dt: float):
+        """Update only rendering/animation for enemies (multiplayer clients only)."""
+        # Update enemy animations and visual effects without AI or movement
+        # In multiplayer clients, enemy positions come from network updates
+        for enemy in self.enemies[:]:  # Copy to avoid modification issues
+            if enemy.is_alive():
+                # Update only visual elements, not AI or movement
+                if hasattr(enemy, 'animated_sprite') and enemy.animated_sprite:
+                    # Update sprite animations using existing velocity and facing angle
+                    velocity = getattr(enemy, 'velocity', pg.Vector2(0, 0))
+                    facing_angle = getattr(enemy, 'facing_angle', 0)
+                    facing_angle_rad = math.radians(facing_angle)
+                    
+                    enemy.animated_sprite.set_position(enemy.pos.x, enemy.pos.y)
+                    enemy.animated_sprite.update(dt, velocity, facing_angle_rad)
+            else:
+                # Remove dead enemies (death state also comes from network)
+                self.enemies.remove(enemy)
+    
+    def generate_enemy_id(self) -> str:
+        """Generate a unique enemy ID."""
+        enemy_id = f"enemy_{self.next_enemy_id}"
+        self.next_enemy_id += 1
+        return enemy_id

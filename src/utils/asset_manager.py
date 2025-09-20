@@ -32,7 +32,7 @@ class AssetManager:
         try:
             sprite_sheet = pg.image.load(path).convert_alpha()
             self.sprite_sheets[path] = sprite_sheet
-            print(f"Loaded and cached sprite sheet: {path}")
+            # print(f"Loaded and cached sprite sheet: {path}")
             return sprite_sheet
         except Exception as e:
             print(f"Failed to load sprite sheet {path}: {e}")
@@ -78,8 +78,8 @@ class AssetManager:
             frames[animation_name] = frame_list
         
         self.cached_animations[cache_key] = frames
-        print(f"Cached animation frames for: {path}")
-        print(f"Frame data: {len(frames)} animations, each with {len(frames.get('down', []))} frames")
+        # print(f"Cached animation frames for: {path}")
+        # print(f"Frame data: {len(frames)} animations, each with {len(frames.get('down', []))} frames")
         return frames
     
     def clear_cache(self):

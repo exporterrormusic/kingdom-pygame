@@ -12,6 +12,7 @@ from enum import Enum
 from src.utils.save_manager import GameSaveManager, SaveSlot
 from src.systems.audio_manager import AudioManager
 from src.ui.menu_states import MenuState, MenuStateManager
+from src.ui.achievement_ui import AchievementUI
 
 
 class EnhancedMenuSystem:
@@ -45,9 +46,17 @@ class EnhancedMenuSystem:
         self.save_manager = GameSaveManager()
         self.save_manager.apply_settings(self.audio_manager)
         
+        # Achievement UI
+        self.achievement_ui = AchievementUI(screen_width, screen_height)
+        
         # Menu selection
         self.main_menu_selection = 0
         self.main_menu_options = ["LEADERBOARDS", "ACHIEVEMENTS", "SHOP", "PLAY", "THE OUTPOST", "SETTINGS", "QUIT"]
+        
+        # Play mode selection
+        self.play_mode_selection = 0
+        self.play_mode_options = ["SOLO", "LOCAL MULTIPLAYER", "ONLINE MULTIPLAYER"]
+        self.play_mode_needs_hover_check = False  # Flag for initial hover detection
         
         # Save/Load menu
         self.save_load_selection = 0
@@ -225,6 +234,43 @@ class EnhancedMenuSystem:
             if option_rect.collidepoint(mouse_pos):
                 return i
         return None
+    
+    def update_play_mode_hover(self, mouse_pos: tuple):
+        """Update play mode selection based on mouse position and handle initial hover check."""
+        hovered_option = self.check_mouse_hover_play_mode(mouse_pos)
+        if hovered_option is not None:
+            self.play_mode_selection = hovered_option
+        
+        # Handle initial hover check flag
+        if self.play_mode_needs_hover_check:
+            self.play_mode_needs_hover_check = False
+    
+    def check_mouse_hover_play_mode(self, mouse_pos: tuple) -> Optional[int]:
+        """Check if mouse is hovering over a play mode option."""
+        for i, option in enumerate(self.play_mode_options):
+            option_rect = self.get_play_mode_option_rect(i)
+            if option_rect.collidepoint(mouse_pos):
+                return i
+        return None
+    
+    def get_play_mode_option_rect(self, option_index: int) -> pg.Rect:
+        """Get rectangle for play mode option that matches the horizontal rendering."""
+        # Match the horizontal layout from _render_play_mode_options
+        button_width = 380   # Very wide buttons to ensure text fits completely
+        button_height = 83   # Same as in rendering
+        button_spacing = 40  # Minimal spacing to fit the very wide buttons
+        
+        total_width = len(self.play_mode_options) * button_width + (len(self.play_mode_options) - 1) * button_spacing
+        start_x = (self.screen_width - total_width) // 2
+        
+        # Position at same height as main menu
+        bar_height = 120
+        bar_y = self.screen_height - (self.screen_height // 4) - (bar_height // 2)
+        menu_y = bar_y + (bar_height - button_height) // 2
+        
+        x_pos = start_x + option_index * (button_width + button_spacing)
+        
+        return pg.Rect(x_pos, menu_y, button_width, button_height)
     
     def handle_main_menu_mouse_click(self, mouse_pos: tuple):
         """Handle mouse clicks on main menu options."""
@@ -527,13 +573,13 @@ class EnhancedMenuSystem:
                         self.set_state(MenuState.LEADERBOARD)
                         return None
                     elif self.main_menu_selection == 1:  # ACHIEVEMENTS
-                        print("Achievements not implemented yet")
+                        self.set_state(MenuState.ACHIEVEMENTS)
                         return None
                     elif self.main_menu_selection == 2:  # SHOP
                         print("Shop not implemented yet")
                         return None
                     elif self.main_menu_selection == 3:  # PLAY
-                        return "new_game"
+                        return "play"
                     elif self.main_menu_selection == 4:  # THE OUTPOST
                         print("The Outpost not implemented yet")
                         return None
@@ -554,13 +600,14 @@ class EnhancedMenuSystem:
                     self.set_state(MenuState.LEADERBOARD)
                     return None
                 elif self.main_menu_selection == 1:  # ACHIEVEMENTS
-                    print("Achievements not implemented yet")
+                    self.set_state(MenuState.ACHIEVEMENTS)
                     return None
                 elif self.main_menu_selection == 2:  # SHOP
                     print("Shop not implemented yet")
                     return None
                 elif self.main_menu_selection == 3:  # PLAY
-                    return "new_game"
+                    self.set_state(MenuState.PLAY_MODE_SELECT)
+                    return None
                 elif self.main_menu_selection == 4:  # THE OUTPOST
                     print("The Outpost not implemented yet")
                     return None
@@ -586,6 +633,41 @@ class EnhancedMenuSystem:
                     return "resume_game"
                 else:
                     return "quit"
+        return None
+    
+    def handle_play_mode_input(self, event) -> Optional[str]:
+        """Handle play mode selection input with mouse and keyboard support."""
+        if event.type == pg.MOUSEMOTION:
+            # Update selection based on mouse hover
+            hovered_option = self.check_mouse_hover_play_mode(event.pos)
+            if hovered_option is not None:
+                self.play_mode_selection = hovered_option
+        elif event.type == pg.MOUSEBUTTONDOWN:
+            if event.button == 1:  # Left click
+                clicked_option = self.check_mouse_hover_play_mode(event.pos)
+                if clicked_option is not None:
+                    self.play_mode_selection = clicked_option
+                    if self.play_mode_selection == 0:  # SOLO
+                        return "new_game"
+                    elif self.play_mode_selection == 1:  # LOCAL MULTIPLAYER
+                        return "local_multiplayer"
+                    elif self.play_mode_selection == 2:  # ONLINE MULTIPLAYER
+                        return "online_multiplayer"
+        elif event.type == pg.KEYDOWN:
+            if event.key == pg.K_UP or event.key == pg.K_w:
+                self.play_mode_selection = (self.play_mode_selection - 1) % len(self.play_mode_options)
+            elif event.key == pg.K_DOWN or event.key == pg.K_s:
+                self.play_mode_selection = (self.play_mode_selection + 1) % len(self.play_mode_options)
+            elif event.key == pg.K_RETURN or event.key == pg.K_SPACE:
+                if self.play_mode_selection == 0:  # SOLO
+                    return "new_game"
+                elif self.play_mode_selection == 1:  # LOCAL MULTIPLAYER
+                    return "local_multiplayer"
+                elif self.play_mode_selection == 2:  # ONLINE MULTIPLAYER
+                    return "online_multiplayer"
+            elif event.key == pg.K_ESCAPE:
+                # Go back to main menu - but don't change state here, let main.py handle it
+                return "back"  # Return "back" to signal escape was handled
         return None
     
     def handle_settings_input(self, event) -> Optional[str]:
@@ -711,6 +793,10 @@ class EnhancedMenuSystem:
     def update(self, dt: float):
         """Update menu animations."""
         self.animation_time += dt
+        
+        # Update achievement UI
+        if hasattr(self, 'achievement_ui'):
+            self.achievement_ui.update()
         
         # Optimize cache cleanup - only clean every few seconds to avoid constant work
         if hasattr(self, '_last_cache_cleanup'):
@@ -1098,41 +1184,44 @@ class EnhancedMenuSystem:
                     # Scale to screen size
                     img = pg.transform.scale(img, (self.screen_width, self.screen_height))
                     bg_images.append(img)
-                    print(f"Loaded background image: {filename}")
+                    # print(f"Loaded background image: {filename}")
                 except Exception as e:
                     print(f"Failed to load background image {filename}: {e}")
         
         # Cache the loaded images
         self._cached_bg_images = bg_images
-        print(f"Cached {len(bg_images)} background images for venetian blinds carousel")
+        # print(f"Cached {len(bg_images)} background images for venetian blinds carousel")
         return bg_images
     
-    def _render_main_logo_clean(self, screen: pg.Surface):
+    def _render_main_logo_clean(self, screen: pg.Surface, scale: float = 1.0):
         """Render the main logo with pixel art military sci-fi styling."""
         title_text = "KINGDOM CLEANUP"
         subtitle_text = "A NIKKE FAN GAME"
         
         # Pixel art title positioning - more space from top for dramatic effect
-        title_y = 120
-        subtitle_y = 200  # Increased spacing from 190 to 200 (50px gap instead of 50px)
+        title_y = int(120 * scale)
+        subtitle_y = int(200 * scale)  # Increased spacing from 190 to 200 (50px gap instead of 50px)
         
         # === PIXEL ART TITLE ===
         # Create pixel-perfect title with blocky, crisp edges
-        title_surface = self.pixel_title_font.render(title_text, False, (255, 255, 255))  # False = no antialiasing for pixel art
+        font_size = int(96 * scale) if scale != 1.0 else None
+        title_font = pg.font.Font(None, font_size) if font_size else self.pixel_title_font
+        
+        title_surface = title_font.render(title_text, False, (255, 255, 255))  # False = no antialiasing for pixel art
         title_rect = title_surface.get_rect(center=(self.screen_width // 2, title_y))
         
         # Pixel art shadow layers - blocky and stepped
         pixel_shadow_colors = [(30, 30, 40), (50, 50, 60), (70, 70, 80)]
-        pixel_shadow_offsets = [(6, 6), (4, 4), (2, 2)]
+        pixel_shadow_offsets = [(int(6 * scale), int(6 * scale)), (int(4 * scale), int(4 * scale)), (int(2 * scale), int(2 * scale))]
         
         for shadow_color, offset in zip(pixel_shadow_colors, pixel_shadow_offsets):
-            shadow_surface = self.pixel_title_font.render(title_text, False, shadow_color)
+            shadow_surface = title_font.render(title_text, False, shadow_color)
             shadow_rect = shadow_surface.get_rect(center=(self.screen_width // 2 + offset[0], title_y + offset[1]))
             screen.blit(shadow_surface, shadow_rect)
         
         # Pixel art glow effect - create blocky highlight
-        glow_surface = self.pixel_title_font.render(title_text, False, (240, 240, 240))
-        glow_rect = glow_surface.get_rect(center=(self.screen_width // 2 - 1, title_y - 1))
+        glow_surface = title_font.render(title_text, False, (240, 240, 240))
+        glow_rect = glow_surface.get_rect(center=(self.screen_width // 2 - int(1 * scale), title_y - int(1 * scale)))
         screen.blit(glow_surface, glow_rect)
         
         # Main title - crisp and pixel perfect
@@ -1515,6 +1604,93 @@ class EnhancedMenuSystem:
         github_rect = github_surface.get_rect(center=(self.screen_width // 2, github_y))
         screen.blit(github_surface, github_rect)
     
+    def render_play_mode_select(self, screen: pg.Surface):
+        """Render the play mode selection screen with clean anime aesthetic."""
+        # Clean background gradient
+        self._draw_clean_background(screen)
+        
+        # Main logo (same size as main menu)
+        self._render_main_logo_clean(screen, scale=1.0)
+        
+        # Render play mode options (no title text, bigger buttons)
+        self._render_play_mode_options(screen)
+        
+        # Add GitHub link like main menu
+        self._render_version_info(screen)
+        
+        # Back instruction
+        back_text = self.small_font.render("ESC - Back", True, (180, 180, 180))
+        back_rect = back_text.get_rect(topleft=(20, 20))
+        screen.blit(back_text, back_rect)
+    
+    def _render_play_mode_options(self, screen: pg.Surface):
+        """Render play mode options horizontally like the main menu."""
+        # Use horizontal layout like main menu with wider buttons for longer text
+        button_width = 380   # Very wide buttons to ensure "LOCAL MULTIPLAYER" and "ONLINE MULTIPLAYER" fit completely
+        button_height = 83   # Same height as main menu
+        button_spacing = 40  # Minimal spacing to fit the very wide buttons
+        
+        total_width = len(self.play_mode_options) * button_width + (len(self.play_mode_options) - 1) * button_spacing
+        start_x = (self.screen_width - total_width) // 2
+        
+        # Position at same height as main menu
+        bar_height = 120
+        bar_y = self.screen_height - (self.screen_height // 4) - (bar_height // 2)
+        menu_y = bar_y + (bar_height - button_height) // 2
+        
+        # Render background bar like main menu
+        bar_rect = pg.Rect(0, bar_y, self.screen_width, bar_height)
+        bar_surface = pg.Surface((self.screen_width, bar_height))
+        bar_surface.set_alpha(200)  # Match main menu alpha
+        bar_surface.fill((20, 20, 30))  # Match main menu bar color
+        screen.blit(bar_surface, (0, bar_y))
+        
+        # Draw bar borders - top and bottom lines like main menu
+        pg.draw.line(screen, (100, 100, 120), (0, bar_y), (self.screen_width, bar_y), 2)
+        pg.draw.line(screen, (100, 100, 120), (0, bar_y + bar_height), (self.screen_width, bar_y + bar_height), 2)
+        
+        for i, option in enumerate(self.play_mode_options):
+            x_pos = start_x + i * (button_width + button_spacing)
+            button_rect = pg.Rect(x_pos, menu_y, button_width, button_height)
+            
+            is_selected = (i == self.play_mode_selection)
+            
+            # Button styling matching main menu
+            if is_selected:
+                # Selected button - bright glow effect
+                glow_size = 8
+                glow_rect = pg.Rect(x_pos - glow_size, menu_y - glow_size, 
+                                   button_width + glow_size * 2, button_height + glow_size * 2)
+                glow_surface = pg.Surface((glow_rect.width, glow_rect.height))
+                glow_surface.set_alpha(80)
+                glow_surface.fill(self.glow_color)
+                screen.blit(glow_surface, glow_rect.topleft)
+                
+                # Button background
+                button_surface = pg.Surface((button_width, button_height))
+                button_surface.set_alpha(220)
+                button_surface.fill((60, 70, 80))  # Brighter for selected
+                screen.blit(button_surface, (x_pos, menu_y))
+                
+                # Button border
+                pg.draw.rect(screen, self.primary_color, button_rect, 3)
+                text_color = self.primary_color
+            else:
+                # Unselected button
+                button_surface = pg.Surface((button_width, button_height))
+                button_surface.set_alpha(160)
+                button_surface.fill((40, 45, 55))  # Darker for unselected
+                screen.blit(button_surface, (x_pos, menu_y))
+                
+                # Button border
+                pg.draw.rect(screen, self.secondary_color, button_rect, 2)
+                text_color = self.secondary_color
+            
+            # Button text
+            text_surface = self.menu_font.render(option, True, text_color)
+            text_rect = text_surface.get_rect(center=button_rect.center)
+            screen.blit(text_surface, text_rect)
+    
     def render_settings(self, screen: pg.Surface):
         """Render the settings menu with clean main menu style."""
         # Use the same clean background as main menu
@@ -1893,12 +2069,16 @@ class EnhancedMenuSystem:
             self.render_welcome(screen)
         elif self.current_state == MenuState.MAIN:
             self.render_main_menu(screen)
+        elif self.current_state == MenuState.PLAY_MODE_SELECT:
+            self.render_play_mode_select(screen)
         elif self.current_state == MenuState.SETTINGS:
             self.render_settings(screen)
         elif self.current_state == MenuState.SAVE_LOAD:
             self.render_save_load(screen)
         elif self.current_state == MenuState.LEADERBOARD:
             self.render_leaderboard(screen)
+        elif self.current_state == MenuState.ACHIEVEMENTS:
+            self.achievement_ui.render(screen)
     
     def handle_input(self, event) -> Optional[str]:
         """Handle input for current menu state."""
@@ -1906,17 +2086,31 @@ class EnhancedMenuSystem:
             return self.handle_welcome_input(event)
         elif self.current_state == MenuState.MAIN:
             return self.handle_main_menu_input(event)
+        elif self.current_state == MenuState.PLAY_MODE_SELECT:
+            return self.handle_play_mode_input(event)
         elif self.current_state == MenuState.SETTINGS:
             return self.handle_settings_input(event)
         elif self.current_state == MenuState.SAVE_LOAD:
             return self.handle_save_load_input(event)
         elif self.current_state == MenuState.LEADERBOARD:
             return self.handle_leaderboard_input(event)
+        elif self.current_state == MenuState.ACHIEVEMENTS:
+            action = self.achievement_ui.handle_input(event)
+            if action == "back":
+                self.set_state(MenuState.MAIN)
+                return None
+            return action
         return None
     
     def set_state(self, state: MenuState, preserve_music: bool = False):
         """Set the menu state."""
         self.current_state = state
+        
+        # Initialize state-specific settings
+        if state == MenuState.PLAY_MODE_SELECT:
+            # Reset to first option and flag for hover check on next frame
+            self.play_mode_selection = 0
+            self.play_mode_needs_hover_check = True
         
         # Start appropriate music only if not preserving current music
         if not preserve_music:
@@ -1951,6 +2145,17 @@ class EnhancedMenuSystem:
         battle_music_file = self._get_random_battle_music()
         print(f"Starting battle music (method 2): {battle_music_file}")
         self.audio_manager.play_music(battle_music_file)
+    
+    def get_achievement_manager(self):
+        """Get the achievement manager for triggering achievement updates."""
+        if hasattr(self, 'achievement_ui'):
+            return self.achievement_ui.achievement_manager
+        return None
+    
+    def show_achievement_notification(self, achievement):
+        """Show an achievement notification."""
+        if hasattr(self, 'achievement_ui'):
+            self.achievement_ui.show_achievement_notification(achievement)
     
     def update_screen_dimensions(self, new_width: int, new_height: int):
         """Update screen dimensions and rescale background."""

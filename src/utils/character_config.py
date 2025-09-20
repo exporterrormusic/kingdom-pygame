@@ -68,7 +68,6 @@ class CharacterConfigManager:
                         config = self._load_character_config(config_file, folder_name)
                         if config:
                             self.configs_cache[folder_name] = config
-                            print(f"Loaded config for: {config.display_name}")
                     else:
                         print(f"Warning: No config.json found for character: {folder_name}")
             

@@ -53,7 +53,7 @@ class Tileset:
                 # Load the tileset image
                 if os.path.exists(self.image_path):
                     self.image = pg.image.load(self.image_path).convert_alpha()  # Enable alpha
-                    print(f"Loaded tileset image: {self.image_path}")
+                    # print(f"Loaded tileset image: {self.image_path}")
                 else:
                     print(f"Tileset image not found: {self.image_path}")
             
@@ -144,7 +144,7 @@ class TiledMap:
                 if source:
                     tileset = Tileset(first_gid, source, base_path)
                     self.tilesets.append(tileset)
-                    print(f"Loaded tileset: {tileset.name} (firstgid: {first_gid})")
+                    # print(f"Loaded tileset: {tileset.name} (firstgid: {first_gid})")
             
             # Load layers (they might be nested in groups) 
             # Use .//layer to find all layer elements regardless of nesting
@@ -169,9 +169,9 @@ class TiledMap:
                         else:
                             layer_type = "VISIBLE COLLISION"
                     
-                    print(f"Loaded layer: {layer_name} ({layer_width}x{layer_height}) - {layer_type}")
+                    # print(f"Loaded layer: {layer_name} ({layer_width}x{layer_height}) - {layer_type}")
             
-            print(f"Map loaded: {self.width}x{self.height} tiles ({self.get_pixel_width()}x{self.get_pixel_height()} pixels)")
+            # print(f"Map loaded: {self.width}x{self.height} tiles ({self.get_pixel_width()}x{self.get_pixel_height()} pixels)")
             
         except Exception as e:
             print(f"Error loading map {self.file_path}: {e}")

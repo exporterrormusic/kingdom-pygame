@@ -422,6 +422,9 @@ class InputHandler:
                             self.game.effects_manager.add_minigun_muzzle_flash(
                                 gun_tip.x, gun_tip.y, self.game.player.angle
                             )
+                            # Call multiplayer synchronization callback for muzzle flash
+                            if hasattr(self.game, '_on_muzzle_flash'):
+                                self.game._on_muzzle_flash(gun_tip.x, gun_tip.y, self.game.player.angle, "Minigun")
             
             # Only use ammo if bullet was actually fired (except for melee weapons)
             if bullet_fired and hasattr(self.game.player, 'use_ammo') and self.game.player.weapon_type != "Sword":

@@ -461,6 +461,11 @@ class EffectsManager:
     def add_neon_impact_effect(self, x: float, y: float):
         """Add neon impact effect for SMG cyberpunk rounds."""
         self.add_enhanced_explosion(x, y, "neon_burst", (0, 255, 255))
+
+    def create_bullet_impact(self, x: float, y: float):
+        """Create generic bullet impact effect for network synchronization."""
+        # Use a generic weapon impact effect for networked bullet hits
+        self.add_weapon_impact_effect(x, y, "generic", "enemy")
     
     # Consolidated weapon effects methods
     def add_weapon_impact_effect(self, x: float, y: float, weapon_type: str, target_type: str = "enemy"):

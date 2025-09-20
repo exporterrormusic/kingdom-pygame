@@ -1,5 +1,5 @@
 {
-  "player_rapture_cores": 237,
+  "player_rapture_cores": 410,
   "character_leaderboards": {
     "cecil": [
       {
@@ -11,6 +11,46 @@
         "character_name": "cecil"
       },
       {
+        "score": 100,
+        "waves_survived": 1,
+        "enemies_killed": 10,
+        "survival_time_seconds": 27,
+        "date": "2025-09-19 17:04:19",
+        "character_name": "cecil"
+      },
+      {
+        "score": 70,
+        "waves_survived": 1,
+        "enemies_killed": 7,
+        "survival_time_seconds": 21,
+        "date": "2025-09-19 17:14:28",
+        "character_name": "cecil"
+      },
+      {
+        "score": 60,
+        "waves_survived": 1,
+        "enemies_killed": 6,
+        "survival_time_seconds": 21,
+        "date": "2025-09-19 17:19:12",
+        "character_name": "cecil"
+      },
+      {
+        "score": 50,
+        "waves_survived": 1,
+        "enemies_killed": 5,
+        "survival_time_seconds": 18,
+        "date": "2025-09-19 17:09:42",
+        "character_name": "cecil"
+      },
+      {
+        "score": 50,
+        "waves_survived": 1,
+        "enemies_killed": 5,
+        "survival_time_seconds": 20,
+        "date": "2025-09-19 18:09:17",
+        "character_name": "cecil"
+      },
+      {
         "score": 40,
         "waves_survived": 1,
         "enemies_killed": 4,
@@ -19,67 +59,27 @@
         "character_name": "cecil"
       },
       {
-        "score": 20,
+        "score": 40,
         "waves_survived": 1,
-        "enemies_killed": 2,
-        "survival_time_seconds": 3,
-        "date": "2025-09-16 18:54:34",
+        "enemies_killed": 4,
+        "survival_time_seconds": 16,
+        "date": "2025-09-19 18:33:53",
         "character_name": "cecil"
       },
       {
-        "score": 10,
+        "score": 40,
         "waves_survived": 1,
-        "enemies_killed": 1,
-        "survival_time_seconds": 9,
-        "date": "2025-09-17 14:55:43",
+        "enemies_killed": 4,
+        "survival_time_seconds": 21,
+        "date": "2025-09-19 19:43:49",
         "character_name": "cecil"
       },
       {
-        "score": 10,
+        "score": 30,
         "waves_survived": 1,
-        "enemies_killed": 1,
-        "survival_time_seconds": 11,
-        "date": "2025-09-17 15:03:23",
-        "character_name": "cecil"
-      },
-      {
-        "score": 10,
-        "waves_survived": 1,
-        "enemies_killed": 1,
-        "survival_time_seconds": 3,
-        "date": "2025-09-17 15:44:04",
-        "character_name": "cecil"
-      },
-      {
-        "score": 10,
-        "waves_survived": 1,
-        "enemies_killed": 1,
-        "survival_time_seconds": 3,
-        "date": "2025-09-17 15:55:37",
-        "character_name": "cecil"
-      },
-      {
-        "score": 0,
-        "waves_survived": 1,
-        "enemies_killed": 0,
-        "survival_time_seconds": 1,
-        "date": "2025-09-17 15:01:25",
-        "character_name": "cecil"
-      },
-      {
-        "score": 0,
-        "waves_survived": 1,
-        "enemies_killed": 0,
-        "survival_time_seconds": 0,
-        "date": "2025-09-17 15:06:21",
-        "character_name": "cecil"
-      },
-      {
-        "score": 0,
-        "waves_survived": 1,
-        "enemies_killed": 0,
-        "survival_time_seconds": 5,
-        "date": "2025-09-17 15:14:25",
+        "enemies_killed": 3,
+        "survival_time_seconds": 12,
+        "date": "2025-09-19 17:12:57",
         "character_name": "cecil"
       }
     ],
@@ -181,9 +181,41 @@
         "survival_time_seconds": 0,
         "date": "2025-09-17 16:53:50",
         "character_name": "rapunzel"
+      },
+      {
+        "score": 0,
+        "waves_survived": 1,
+        "enemies_killed": 0,
+        "survival_time_seconds": 2,
+        "date": "2025-09-18 03:48:22",
+        "character_name": "rapunzel"
       }
     ],
     "snow-white": [
+      {
+        "score": 450,
+        "waves_survived": 1,
+        "enemies_killed": 45,
+        "survival_time_seconds": 77,
+        "date": "2025-09-18 17:23:18",
+        "character_name": "snow-white"
+      },
+      {
+        "score": 340,
+        "waves_survived": 1,
+        "enemies_killed": 34,
+        "survival_time_seconds": 59,
+        "date": "2025-09-18 03:31:18",
+        "character_name": "snow-white"
+      },
+      {
+        "score": 270,
+        "waves_survived": 1,
+        "enemies_killed": 27,
+        "survival_time_seconds": 39,
+        "date": "2025-09-18 03:54:53",
+        "character_name": "snow-white"
+      },
       {
         "score": 20,
         "waves_survived": 1,
@@ -214,6 +246,14 @@
         "enemies_killed": 0,
         "survival_time_seconds": 1,
         "date": "2025-09-17 15:29:09",
+        "character_name": "snow-white"
+      },
+      {
+        "score": 0,
+        "waves_survived": 1,
+        "enemies_killed": 0,
+        "survival_time_seconds": 0,
+        "date": "2025-09-18 03:55:32",
         "character_name": "snow-white"
       }
     ],
@@ -419,6 +459,22 @@
     ],
     "marian": [
       {
+        "score": 90,
+        "waves_survived": 1,
+        "enemies_killed": 9,
+        "survival_time_seconds": 24,
+        "date": "2025-09-19 16:04:34",
+        "character_name": "marian"
+      },
+      {
+        "score": 30,
+        "waves_survived": 1,
+        "enemies_killed": 3,
+        "survival_time_seconds": 13,
+        "date": "2025-09-18 04:16:58",
+        "character_name": "marian"
+      },
+      {
         "score": 10,
         "waves_survived": 1,
         "enemies_killed": 1,
@@ -485,6 +541,54 @@
     ],
     "sin": [
       {
+        "score": 330,
+        "waves_survived": 1,
+        "enemies_killed": 33,
+        "survival_time_seconds": 65,
+        "date": "2025-09-18 03:57:39",
+        "character_name": "sin"
+      },
+      {
+        "score": 220,
+        "waves_survived": 1,
+        "enemies_killed": 22,
+        "survival_time_seconds": 45,
+        "date": "2025-09-18 03:49:31",
+        "character_name": "sin"
+      },
+      {
+        "score": 60,
+        "waves_survived": 1,
+        "enemies_killed": 6,
+        "survival_time_seconds": 15,
+        "date": "2025-09-18 03:54:12",
+        "character_name": "sin"
+      },
+      {
+        "score": 50,
+        "waves_survived": 1,
+        "enemies_killed": 5,
+        "survival_time_seconds": 28,
+        "date": "2025-09-19 16:16:35",
+        "character_name": "sin"
+      },
+      {
+        "score": 20,
+        "waves_survived": 1,
+        "enemies_killed": 2,
+        "survival_time_seconds": 5,
+        "date": "2025-09-18 03:48:43",
+        "character_name": "sin"
+      },
+      {
+        "score": 20,
+        "waves_survived": 1,
+        "enemies_killed": 2,
+        "survival_time_seconds": 8,
+        "date": "2025-09-19 16:39:13",
+        "character_name": "sin"
+      },
+      {
         "score": 0,
         "waves_survived": 1,
         "enemies_killed": 0,
@@ -515,25 +619,25 @@
         "survival_time_seconds": 2,
         "date": "2025-09-17 15:29:14",
         "character_name": "sin"
-      },
-      {
-        "score": 0,
-        "waves_survived": 1,
-        "enemies_killed": 0,
-        "survival_time_seconds": 2,
-        "date": "2025-09-17 16:02:00",
-        "character_name": "sin"
-      },
-      {
-        "score": 0,
-        "waves_survived": 1,
-        "enemies_killed": 0,
-        "survival_time_seconds": 0,
-        "date": "2025-09-17 16:02:05",
-        "character_name": "sin"
       }
     ],
     "wells": [
+      {
+        "score": 260,
+        "waves_survived": 1,
+        "enemies_killed": 26,
+        "survival_time_seconds": 35,
+        "date": "2025-09-18 17:35:32",
+        "character_name": "wells"
+      },
+      {
+        "score": 110,
+        "waves_survived": 1,
+        "enemies_killed": 11,
+        "survival_time_seconds": 17,
+        "date": "2025-09-18 17:34:55",
+        "character_name": "wells"
+      },
       {
         "score": 0,
         "waves_survived": 1,
@@ -544,5 +648,5 @@
       }
     ]
   },
-  "last_saved": "2025-09-17 22:24:52"
+  "last_saved": "2025-09-19 21:44:54"
 }

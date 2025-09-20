@@ -13,7 +13,10 @@ class GameState(Enum):
     """Different game states."""
     WELCOME = "welcome"
     MENU = "menu"
+    PLAY_MODE_SELECT = "play_mode_select"
     CHARACTER_SELECT = "character_select"
+    LOCAL_MULTIPLAYER = "local_multiplayer"
+    MULTIPLAYER_LOBBY = "multiplayer_lobby"
     PLAYING = "playing"
     GAME_OVER = "game_over"
     PAUSED = "paused"
@@ -68,12 +71,19 @@ class StateManager:
     
     def handle_enhanced_menu_input(self, event) -> bool:
         """Handle input for enhanced menu. Returns True if should continue."""
+        from src.ui.menu_states import MenuState
         result = self.enhanced_menu.handle_input(event)
         if result == "new_game":
             self.change_state(GameState.CHARACTER_SELECT)
             return True
         elif result == "load_game":
             # Load game functionality not implemented
+            return True
+        elif result == "back":
+            # Handle back navigation from play mode selection or other submenus
+            if self.enhanced_menu.current_state == MenuState.PLAY_MODE_SELECT:
+                # Return to main menu from play mode selection
+                self.enhanced_menu.set_state(MenuState.MAIN)
             return True
         elif result == "quit":
             return False
@@ -170,6 +180,9 @@ class StateManager:
         elif new_state == GameState.CHARACTER_SELECT:
             # Start character select music when entering character selection
             self.enhanced_menu.start_character_select_music()
+        elif new_state == GameState.MULTIPLAYER_LOBBY:
+            # Start character select music when entering multiplayer lobby
+            self.enhanced_menu.start_character_select_music()
             
         # Update enhanced menu state
         if new_state == GameState.WELCOME:
@@ -180,6 +193,8 @@ class StateManager:
             came_from_paused = (self.previous_state == GameState.PAUSED and self.has_active_game)
             self.enhanced_menu.set_came_from_paused_game(came_from_paused)
             self.enhanced_menu.set_state(MenuState.MAIN)
+        elif new_state == GameState.PLAY_MODE_SELECT:
+            self.enhanced_menu.set_state(MenuState.PLAY_MODE_SELECT)
         elif new_state == GameState.SETTINGS:
             # Preserve music if coming from paused game, otherwise use default music
             preserve_music = (self.previous_state == GameState.PAUSED)
@@ -215,6 +230,10 @@ class StateManager:
     
     def render_save_load(self):
         """Render the save/load menu using enhanced menu."""
+        self.enhanced_menu.render(self.screen)
+    
+    def render_play_mode_select(self):
+        """Render the play mode selection screen using enhanced menu."""
         self.enhanced_menu.render(self.screen)
     
     def render_menu(self):
@@ -466,6 +485,10 @@ class StateManager:
         """Check if currently in character selection state."""
         return self.current_state == GameState.CHARACTER_SELECT
     
+    def is_play_mode_select(self) -> bool:
+        """Check if currently in play mode selection state."""
+        return self.current_state == GameState.PLAY_MODE_SELECT
+    
     def is_game_over(self) -> bool:
         """Check if currently in game over state."""
         return self.current_state == GameState.GAME_OVER
@@ -477,6 +500,14 @@ class StateManager:
     def is_quit_confirmation(self) -> bool:
         """Check if currently in quit confirmation state."""
         return self.current_state == GameState.QUIT_CONFIRMATION
+    
+    def is_multiplayer_lobby(self) -> bool:
+        """Check if currently in multiplayer lobby state."""
+        return self.current_state == GameState.MULTIPLAYER_LOBBY
+    
+    def is_local_multiplayer(self) -> bool:
+        """Check if currently in local multiplayer state."""
+        return self.current_state == GameState.LOCAL_MULTIPLAYER
     
     def update_screen_dimensions(self, screen: pg.Surface, width: int, height: int):
         """Update screen dimensions across all systems."""

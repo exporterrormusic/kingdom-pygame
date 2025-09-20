@@ -79,6 +79,7 @@ class Player:
         self.size = 20
         self.max_health = 100
         self.health = self.max_health
+        self.weapon_type = "Assault Rifle"  # Default weapon type
         
         # Dash mechanics
         self.dash_distance = 150  # pixels to dash

@@ -169,18 +169,39 @@ class Game:
             self.network_manager = self.multiplayer_lobby.get_network_manager()
             self.is_multiplayer = True
             
+            print(f"[MULTIPLAYER_INIT] Starting multiplayer game - is_host={self.multiplayer_lobby.is_host}")
+            
             # Create game synchronizer
             self.game_synchronizer = GameStateSynchronizer(
                 self.network_manager, 
                 is_host=self.multiplayer_lobby.is_host
             )
             
+            # Set game object references for the synchronizer
+            self.game_synchronizer.set_game_references(
+                player=self.player,
+                bullet_manager=self.bullet_manager,
+                enemy_manager=self.enemy_manager,
+                effects_manager=self.effects_manager
+            )
+            
             # Set local player character from lobby
             lobby_players = self.multiplayer_lobby.get_players()
             local_id = self.multiplayer_lobby.get_local_player_id()
-            if local_id in lobby_players:
+            
+            print(f"[MULTIPLAYER_INIT] Local player: {local_id}")
+            print(f"[MULTIPLAYER_INIT] Lobby players: {lobby_players} (type: {type(lobby_players)})")
+            
+            if isinstance(lobby_players, dict) and local_id in lobby_players:
                 self.selected_character = lobby_players[local_id].character.lower().replace(' ', '-')
                 self.character_manager.set_current_character(self.selected_character)
+            elif isinstance(lobby_players, list):
+                # Find local player in list
+                for player in lobby_players:
+                    if hasattr(player, 'id') and player.id == local_id:
+                        self.selected_character = player.character.lower().replace(' ', '-')
+                        self.character_manager.set_current_character(self.selected_character)
+                        break
             
             # Start the game
             self.reset_game()
@@ -211,12 +232,36 @@ class Game:
     def _on_explosion(self, x, y, color, radius=50, small=False):
         """Called when an explosion occurs (for multiplayer synchronization)."""
         if self.is_multiplayer and self.game_synchronizer:
-            self.game_synchronizer.on_explosion(x, y, color, radius, small)
+            # Convert explosion parameters for network sync
+            damage = 50 if not small else 25  # Estimate damage based on explosion size
+            self.game_synchronizer.on_explosion(x, y, radius, damage)
     
     def _on_muzzle_flash(self, x, y, angle, weapon_type):
         """Called when a muzzle flash occurs (for multiplayer synchronization)."""
         if self.is_multiplayer and self.game_synchronizer:
             self.game_synchronizer.on_muzzle_flash(x, y, angle, weapon_type)
+
+    def _on_bullet_hit(self, x, y):
+        """Called when a bullet hits an enemy (for multiplayer synchronization)."""
+        if self.is_multiplayer and self.game_synchronizer:
+            self.game_synchronizer.on_bullet_hit(x, y)
+
+    def _send_enemy_updates(self):
+        """Send enemy position updates to clients (host only)."""
+        if not hasattr(self, '_last_enemy_sync_time'):
+            self._last_enemy_sync_time = 0.0
+        
+        current_time = self.game_time
+        # Send enemy updates every 0.1 seconds (10 times per second)
+        if current_time - self._last_enemy_sync_time < 0.1:
+            return
+        
+        self._last_enemy_sync_time = current_time
+        
+        # Send updates for all living enemies
+        for enemy in self.enemy_manager.get_enemies():
+            if enemy.is_alive():
+                self.game_synchronizer.send_enemy_update(enemy)
 
     # Camera system compatibility properties
     @property
@@ -312,7 +357,6 @@ class Game:
             print("No character selected, using geometric player")
             # Use AnimatedPlayer with default character to have proper combat and sprite capabilities
             try:
-                from src.entities.animated_player import AnimatedPlayer
                 # Try to use a default character (like 'cecil') if available
                 default_character = 'cecil'
                 char_path = self.character_manager.get_character_path(default_character)
@@ -1775,7 +1819,7 @@ class Game:
             game_start_result = self.multiplayer_lobby.check_game_start_status()
             if game_start_result:
                 if game_start_result == "start_game":
-                    print("[DEBUG] Starting multiplayer game...")
+                    # Removed debug statement
                     self._start_multiplayer_game()
         else:
             # Only print state changes to avoid spam
@@ -1791,6 +1835,11 @@ class Game:
             self.game_synchronizer.update(self.dt)
             # Get network players for rendering
             self.multiplayer_players = self.game_synchronizer.get_network_players()
+            
+            # Debug: Log multiplayer state every 10 seconds (reduced frequency)
+            if hasattr(self, 'game_time') and self.game_time % 10.0 < self.dt:
+                print(f"[MULTIPLAYER] is_multiplayer={self.is_multiplayer}, network_players={len(self.multiplayer_players)}, is_host={getattr(self.multiplayer_lobby, 'is_host', 'N/A')}")
+                # Removed per-player position logging to reduce spam
             
             # Sync enemies if host (host authoritative)
             if self.multiplayer_lobby and self.multiplayer_lobby.is_host:
@@ -1829,8 +1878,25 @@ class Game:
             
             # Missiles handle their own explosions automatically
             self.missile_manager.update(self.dt, self.enemy_manager.get_enemies())
-            self.enemy_manager.update(self.dt, self.player.pos, self.game_time, self.bullet_manager,
-                                     self.base_zoom, self.screen_width, self.screen_height)
+            
+            # Enemy management: Only host manages enemies in multiplayer, clients receive updates
+            if not self.is_multiplayer or (self.multiplayer_lobby and self.multiplayer_lobby.is_host):
+                # Single player or multiplayer host: Update enemy AI, spawning, etc.
+                self.enemy_manager.update(self.dt, self.player.pos, self.game_time, self.bullet_manager,
+                                         self.base_zoom, self.screen_width, self.screen_height)
+                if self.is_multiplayer and self.game_time % 15.0 < self.dt:  # Log every 15 seconds (reduced)
+                    print(f"[ENEMY_SYNC] Host managing {len(self.enemy_manager.get_enemies())} enemies")
+                
+                # Send enemy position updates to clients (host only)
+                if self.is_multiplayer and self.game_synchronizer:
+                    self._send_enemy_updates()
+            else:
+                # Multiplayer client: Only update enemy rendering/animation, not AI or spawning
+                # The actual enemy positions come from host via GameStateSynchronizer
+                self.enemy_manager.update_render_only(self.dt)
+                if self.game_time % 15.0 < self.dt:  # Log every 15 seconds (reduced)
+                    enemy_count = len(self.enemy_manager.get_enemies()) if hasattr(self.enemy_manager, 'get_enemies') else 0
+                    print(f"[ENEMY_SYNC] Client has {enemy_count} enemies from network")
             
             # Sync game state in multiplayer
             if self.is_multiplayer and self.game_synchronizer:
@@ -1898,34 +1964,41 @@ class Game:
             self.game_time += self.dt
             
             # Handle collisions
-            kills = self.collision_manager.check_bullet_enemy_collisions(
-                self.bullet_manager, self.enemy_manager, self.player, self.effects_manager, self.world_manager)
-            
-            # Check bullet-chest collisions
+            if not self.is_multiplayer or (self.multiplayer_lobby and self.multiplayer_lobby.is_host):
+                # Single player or multiplayer host: Full collision processing with enemy death authority
+                kills = self.collision_manager.check_bullet_enemy_collisions(
+                    self.bullet_manager, self.enemy_manager, self.player, self.effects_manager, self.world_manager, self._on_bullet_hit)
+                
+                # Handle missile collisions with enemies
+                missile_kills = self.check_missile_enemy_collisions()
+                kills += missile_kills
+                
+                # Handle minigun whip damage when at full speed
+                if self.player.weapon_type == "Minigun" and self.minigun_effects_manager.whip_trail_active:
+                    whip_kills = self.check_whip_damage()
+                    kills += whip_kills
+                
+                # Add score for kills (10 points per enemy)
+                if kills > 0:
+                    # Add kills to score manager instead of direct score tracking
+                    for _ in range(kills):
+                        self.score_manager.add_kill_score(10)
+            else:
+                # Multiplayer client: Detect collisions but send damage to host instead of applying locally
+                kills = self.collision_manager.check_bullet_enemy_collisions_network_client(
+                    self.bullet_manager, self.enemy_manager, self.player, self.effects_manager, 
+                    self.world_manager, self.game_synchronizer, self._on_bullet_hit)
+
+            # Check bullet-chest collisions (all players can damage chests)
             bullets_to_remove = []
             for bullet in self.bullet_manager.bullets[:]:  # Copy to allow modification
                 if bullet.type.value == "player":  # Only player bullets can damage chests
                     if self.world_manager.core_manager.check_bullet_chest_collision(bullet.get_rect(), bullet.damage):
                         bullets_to_remove.append(bullet)
-            
+
             # Remove bullets that hit chests
             for bullet in bullets_to_remove:
                 self.bullet_manager.remove_bullet(bullet)
-            
-            # Handle missile collisions with enemies
-            missile_kills = self.check_missile_enemy_collisions()
-            kills += missile_kills
-            
-            # Handle minigun whip damage when at full speed
-            if self.player.weapon_type == "Minigun" and self.minigun_effects_manager.whip_trail_active:
-                whip_kills = self.check_whip_damage()
-                kills += whip_kills
-            
-            # Add score for kills (10 points per enemy)
-            if kills > 0:
-                # Add kills to score manager instead of direct score tracking
-                for _ in range(kills):
-                    self.score_manager.add_kill_score(10)
             
             # Check player-enemy collisions
             player_hit = self.collision_manager.check_player_enemy_collisions(
@@ -2049,14 +2122,14 @@ class Game:
                     # Regular player
                     self.player.render(virtual_surface, self.game_time)
             
-            # Render multiplayer players
+            # Render enemies (bottom layer)
+            self.enemy_manager.render(virtual_surface, virtual_offset)
+            
+            # Render multiplayer players (above enemies, same layer as local player)
             if self.is_multiplayer and self.multiplayer_players:
                 self.multiplayer_renderer.render_network_players(
                     virtual_surface, self.multiplayer_players, virtual_offset
                 )
-            
-            # Render enemies first (bottom layer)
-            self.enemy_manager.render(virtual_surface, virtual_offset)
             
             # Render effects on top
             self.effects_manager.render(virtual_surface, virtual_offset)
@@ -2065,6 +2138,15 @@ class Game:
             # Render bullets and missiles LAST to make sure they're visible (temporary debug)
             self.bullet_manager.render(virtual_surface, virtual_offset)
             self.missile_manager.render(virtual_surface, virtual_offset)
+            
+            # Render network bullets for multiplayer
+            if self.is_multiplayer and self.game_synchronizer:
+                network_bullets = self.game_synchronizer.get_network_bullets()
+                # Removed generic network bullet rendering - network bullets are now created in bullet manager with proper weapon appearance
+                # if network_bullets:
+                #     self.multiplayer_renderer.render_network_bullets(
+                #         virtual_surface, network_bullets, virtual_offset
+                #     )
             
             # Render minigun muzzle flames if active
             if self.player.weapon_type == "Minigun":
@@ -2376,7 +2458,7 @@ class Game:
     def run(self):
         """Main game loop."""
         print("Starting Kingdom-Pygame Twin-Stick Shooter...")
-        print(f"Found characters: {self.character_manager.get_character_display_names()}")
+        # print(f"Found characters: {self.character_manager.get_character_display_names()}")
         
         while self.running:
             self.dt = self.clock.tick(FPS) / 1000.0

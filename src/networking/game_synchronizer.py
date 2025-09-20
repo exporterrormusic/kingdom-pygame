@@ -242,12 +242,6 @@ class GameStateSynchronizer:
             character_id = 'Cecil'  # Default fallback
         
         # Rate-limited debug for character ID (only on first few sends)
-        if not hasattr(self, '_character_debug_count'):
-            self._character_debug_count = 0
-        if self._character_debug_count < 3:
-            print(f"[PLAYER_UPDATE_DEBUG] Local player character_id: '{character_id}', local_player.character_id: '{getattr(self.local_player, 'character_id', 'NOT_SET')}'")
-            self._character_debug_count += 1
-            
         player_state = PlayerState(
             player_id=self.local_player_id,
             position=(self.local_player.pos.x, self.local_player.pos.y),
@@ -266,9 +260,6 @@ class GameStateSynchronizer:
         # Debug velocity being sent (rate limited)
         if not hasattr(self, '_velocity_send_debug'):
             self._velocity_send_debug = 0
-        if time.time() - self._velocity_send_debug > 3:
-            self._velocity_send_debug = time.time()
-            print(f"[SYNC_DEBUG] Sending velocity: ({self.local_player.velocity.x:.2f}, {self.local_player.velocity.y:.2f}) for player {self.local_player_id}")
         self.network_manager.send_message(
             MessageType.PLAYER_UPDATE,
             asdict(player_state)

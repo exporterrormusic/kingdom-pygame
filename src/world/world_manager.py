@@ -150,51 +150,14 @@ class WorldManager:
         print("Cores will only be available from defeated enemies")
         
     def _generate_random_objective(self, character_level: int) -> LevelObjective:
-        """Generate a random objective scaled to character level."""
-        objective_type = random.choice(list(ObjectiveType))
-        
-        if objective_type == ObjectiveType.COLLECT_CORES:
-            # Scale cores needed: 5 + (level-1)*3, so level 1=5, level 2=8, level 3=11, etc.
-            cores_needed = 5 + (character_level - 1) * 3
-            return LevelObjective(
-                type=ObjectiveType.COLLECT_CORES,
-                description=f"Collect {cores_needed} Rapture Cores",
-                target_value=cores_needed
-            )
-            
-        elif objective_type == ObjectiveType.RESCUE_NPC:
-            # Select random character that's not the player
-            if self.available_characters:
-                npc_name = random.choice(self.available_characters)
-                # Place NPC in far corner of map (updated for rectangular world)
-                corner_positions = [
-                    (-4000, -2500), (4000, -2500), (-4000, 2500), (4000, 2500)
-                ]
-                npc_pos = random.choice(corner_positions)
-                
-                # Actually spawn the NPC
-                self.npc_manager.add_npc(npc_pos[0], npc_pos[1], npc_name)
-                print(f"Spawned NPC {npc_name} at {npc_pos}")
-                
-                return LevelObjective(
-                    type=ObjectiveType.RESCUE_NPC,
-                    description=f"Rescue {npc_name}",
-                    target_value=1,
-                    npc_character_name=npc_name,
-                    npc_spawn_position=npc_pos
-                )
-            else:
-                # Fallback to cores if no characters available
-                return self._generate_random_objective(character_level)
-                
-        else:  # ObjectiveType.SURVIVE_TIME
-            # Scale time: 60 + (level-1)*30 seconds, so level 1=1min, level 2=1.5min, etc.
-            survive_seconds = 60 + (character_level - 1) * 30
-            return LevelObjective(
-                type=ObjectiveType.SURVIVE_TIME,
-                description=f"Survive for {survive_seconds//60}:{survive_seconds%60:02d}",
-                target_value=survive_seconds
-            )
+        """Generate survival objective - game only ends when player dies."""
+        # Always return survival objective - no other objectives needed
+        return LevelObjective(
+            type=ObjectiveType.SURVIVE_TIME,
+            description="SURVIVE",
+            target_value=999999,  # Effectively infinite - player must die to end match
+            current_progress=0
+        )
     
     # Level-based World Management Methods
     

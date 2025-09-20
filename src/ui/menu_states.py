@@ -15,9 +15,11 @@ class MenuState(Enum):
     """Different menu states."""
     WELCOME = "welcome"
     MAIN = "main"
+    PLAY_MODE_SELECT = "play_mode_select"
     SETTINGS = "settings"
     SAVE_LOAD = "save_load"
     LEADERBOARD = "leaderboard"
+    ACHIEVEMENTS = "achievements"
 
 
 class MenuStateManager:
@@ -34,6 +36,10 @@ class MenuStateManager:
         # Menu navigation
         self.main_menu_selected = 0
         self.main_menu_options = ["Start Game", "Load Game", "Leaderboard", "Settings", "Exit"]
+        
+        # Play mode selection
+        self.play_mode_selected = 0
+        self.play_mode_options = ["SOLO", "MULTIPLAYER"]
         
         # Settings navigation
         self.settings_tab = 0  # 0: Audio, 1: Video, 2: Controls
@@ -118,6 +124,33 @@ class MenuStateManager:
             if rect.collidepoint(mouse_pos):
                 self.main_menu_selected = i
                 return self.main_menu_options[i].lower().replace(" ", "_")
+        return None
+    
+    # Play mode selection navigation
+    def get_play_mode_option_rect(self, option_index: int) -> pg.Rect:
+        """Get rectangle for play mode option."""
+        option_height = 80
+        total_height = len(self.play_mode_options) * option_height
+        start_y = (self.screen_height - total_height) // 2
+        y = start_y + option_index * option_height
+        
+        return pg.Rect(self.screen_width // 2 - 150, y, 300, 60)
+    
+    def check_mouse_hover_play_mode(self, mouse_pos: tuple) -> int:
+        """Check which play mode option is hovered."""
+        for i in range(len(self.play_mode_options)):
+            rect = self.get_play_mode_option_rect(i)
+            if rect.collidepoint(mouse_pos):
+                return i
+        return -1
+    
+    def handle_play_mode_mouse_click(self, mouse_pos: tuple):
+        """Handle mouse click on play mode selection."""
+        for i in range(len(self.play_mode_options)):
+            rect = self.get_play_mode_option_rect(i)
+            if rect.collidepoint(mouse_pos):
+                self.play_mode_selected = i
+                return self.play_mode_options[i].lower()
         return None
     
     # Settings navigation

@@ -48,7 +48,7 @@ class CharacterManager:
         except Exception as e:
             print(f"Error scanning characters folder: {e}")
         
-        print(f"Found {len(characters)} characters: {list(characters.keys())}")
+        # print(f"Found {len(characters)} characters: {list(characters.keys())}")
         return characters
     
     def get_character_list(self) -> List[str]:
