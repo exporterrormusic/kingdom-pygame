@@ -1781,6 +1781,77 @@ class BulletManager:
         for bullet in self.bullets:
             bullet.render(screen, offset)
     
+    def create_network_bullet(self, x: float, y: float, velocity_x: float, velocity_y: float, 
+                             damage: int, weapon_type: str, special_attack: bool = False, 
+                             owner_id: str = None, shape: str = "standard", 
+                             size_multiplier: float = 1.0, color: tuple = None, 
+                             penetration: int = 1, bounce_enabled: bool = False, 
+                             max_bounces: int = 0, bounce_range: float = None, 
+                             enemy_targeting: bool = False, trail_enabled: bool = False, 
+                             trail_duration: float = 0.0, range_limit: float = None):
+        """Create a network bullet from another player (visual only, no local collision)."""
+        import math
+        
+        # Debug logging for network bullet creation
+        # Only log special attacks to reduce spam
+        if special_attack:
+            print(f"[NETWORK_BULLET] Creating special attack: {weapon_type}")
+        # Removed normal bullet logging to reduce debug spam
+        
+        # Calculate angle from velocity
+        angle = math.degrees(math.atan2(velocity_y, velocity_x))
+        speed = math.sqrt(velocity_x**2 + velocity_y**2)
+        
+        # Use transmitted color or determine bullet color from weapon properties
+        bullet_color = color
+        if bullet_color is None:
+            if special_attack:
+                bullet_color = (255, 0, 0)  # Bright red for special attack visual effects
+            else:
+                # Get weapon-specific color for normal bullets
+                try:
+                    from src.weapons.weapon_manager import weapon_manager
+                    weapon_props = weapon_manager.get_bullet_properties(weapon_type)
+                    weapon_color = weapon_props.get("color", [255, 255, 255])
+                    # Convert list to tuple if needed
+                    if isinstance(weapon_color, list):
+                        bullet_color = tuple(weapon_color)
+                    else:
+                        bullet_color = weapon_color
+                except:
+                    bullet_color = (255, 255, 255)  # Fall back to default bullet color
+        
+        # Create bullet with all transmitted network properties - preserve full appearance
+        bullet = Bullet(
+            x, y, angle, 
+            BulletType.PLAYER,  # Use player type to get proper appearance
+            speed=speed, 
+            damage=damage, 
+            weapon_type=weapon_type, 
+            special_attack=special_attack,
+            color=bullet_color,
+            size_multiplier=size_multiplier,
+            shape=shape,
+            penetration=penetration,
+            bounce_enabled=bounce_enabled,
+            max_bounces=max_bounces,
+            bounce_range=bounce_range,
+            enemy_targeting=enemy_targeting,
+            trail_enabled=trail_enabled,
+            trail_duration=trail_duration,
+            range_limit=range_limit
+        )
+        
+        # Mark as network bullet but preserve full appearance
+        bullet.is_network_bullet = True
+        bullet.owner_id = owner_id
+        
+        # Set velocity directly (don't recalculate from angle)
+        bullet.velocity = pg.Vector2(velocity_x, velocity_y)
+        
+        self.bullets.append(bullet)
+        return bullet
+
     def get_bullets(self) -> List[Bullet]:
         """Get list of all active bullets."""
         return self.bullets
